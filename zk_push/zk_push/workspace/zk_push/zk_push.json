@@ -1,0 +1,165 @@
+{
+ "charts": [],
+ "content": "[{\"id\": \"zkh1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>ZK Push: Attendance Devices</b></span>\", \"col\": 12}}, {\"id\": \"zks0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Devices\", \"col\": 4}}, {\"id\": \"zks1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Punches\", \"col\": 4}}, {\"id\": \"zks2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Failed Punches\", \"col\": 4}}, {\"id\": \"zks3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Pending Punches\", \"col\": 4}}, {\"id\": \"zks4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Users\", \"col\": 4}}, {\"id\": \"zks5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Employee Checkin\", \"col\": 4}}, {\"id\": \"zkh2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Records</b></span>\", \"col\": 12}}, {\"id\": \"zkc1\", \"type\": \"card\", \"data\": {\"card_name\": \"Attendance\", \"col\": 4}}, {\"id\": \"zkc2\", \"type\": \"card\", \"data\": {\"card_name\": \"Debugging\", \"col\": 4}}]",
+ "creation": "2026-11-05 14:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "users",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "ZK Push",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance",
+   "link_count": 4,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ZK Device",
+   "link_count": 0,
+   "link_to": "ZK Device",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ZK Punch",
+   "link_count": 0,
+   "link_to": "ZK Punch",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "ZK Unmatched Users",
+   "link_count": 0,
+   "link_to": "ZK Unmatched Users",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Employee Checkin",
+   "link_count": 0,
+   "link_to": "Employee Checkin",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Debugging",
+   "link_count": 2,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ZK Request Log",
+   "link_count": 0,
+   "link_to": "ZK Request Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ZK Device Command",
+   "link_count": 0,
+   "link_to": "ZK Device Command",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-11-05 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Push",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "HR Manager"
+  },
+  {
+   "role": "HR User"
+  }
+ ],
+ "sequence_id": 30.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Devices",
+   "link_to": "ZK Device",
+   "type": "DocType"
+  },
+  {
+   "color": "Yellow",
+   "doc_view": "List",
+   "label": "Unmatched Punches",
+   "link_to": "ZK Punch",
+   "type": "DocType",
+   "stats_filter": "[[\"ZK Punch\",\"status\",\"=\",\"Unmatched\",false]]",
+   "format": "{} Unmatched"
+  },
+  {
+   "color": "Red",
+   "doc_view": "List",
+   "label": "Failed Punches",
+   "link_to": "ZK Punch",
+   "type": "DocType",
+   "stats_filter": "[[\"ZK Punch\",\"status\",\"=\",\"Error\",false]]",
+   "format": "{} Failed"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "label": "Pending Punches",
+   "link_to": "ZK Punch",
+   "type": "DocType",
+   "stats_filter": "[[\"ZK Punch\",\"status\",\"=\",\"Pending\",false]]",
+   "format": "{} Pending"
+  },
+  {
+   "color": "Yellow",
+   "doc_view": "",
+   "label": "Unmatched Users",
+   "link_to": "ZK Unmatched Users",
+   "type": "Report",
+   "report_ref_doctype": "ZK Punch"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "Employee Checkin",
+   "link_to": "Employee Checkin",
+   "type": "DocType"
+  }
+ ],
+ "title": "ZK Push"
+}

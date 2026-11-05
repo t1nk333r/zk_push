@@ -1,0 +1,188 @@
+{
+ "actions": [],
+ "creation": "2026-11-05 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device",
+  "branch",
+  "pin",
+  "punch_time",
+  "column_break_main",
+  "status",
+  "employee",
+  "employee_name",
+  "employee_checkin",
+  "processed_at",
+  "attempts",
+  "section_break_raw",
+  "device_status",
+  "verify_type",
+  "workcode",
+  "column_break_raw",
+  "raw",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "device",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Device",
+   "options": "ZK Device",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fetch_from": "device.branch",
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "options": "Branch",
+   "label": "Branch",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "pin",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Device User ID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "punch_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Punch Time",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nCreated\nDuplicate\nUnmatched\nSkipped\nError",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "employee_checkin",
+   "fieldtype": "Link",
+   "label": "Employee Checkin",
+   "options": "Employee Checkin",
+   "read_only": 1
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "label": "Processed At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_raw",
+   "fieldtype": "Section Break",
+   "label": "Device Data"
+  },
+  {
+   "fieldname": "device_status",
+   "fieldtype": "Int",
+   "label": "Device Status",
+   "read_only": 1,
+   "description": "0 Check-In, 1 Check-Out, 2 Break-Out, 3 Break-In, 4 OT-In, 5 OT-Out"
+  },
+  {
+   "fieldname": "verify_type",
+   "fieldtype": "Int",
+   "label": "Verify Type",
+   "read_only": 1,
+   "description": "1 Fingerprint, 3/4 Password/Card, 15 Face"
+  },
+  {
+   "fieldname": "workcode",
+   "fieldtype": "Data",
+   "label": "Work Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_raw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "raw",
+   "fieldtype": "Small Text",
+   "label": "Raw Line",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-05 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Punch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "HR User"
+  }
+ ],
+ "sort_field": "punch_time",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "pin",
+ "show_title_field_in_link": 0
+}

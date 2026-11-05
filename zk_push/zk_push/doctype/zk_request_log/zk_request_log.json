@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "creation": "2026-11-05 14:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device",
+  "method",
+  "endpoint",
+  "punches",
+  "column_break_1",
+  "response_status",
+  "duration_ms",
+  "ip",
+  "body_size",
+  "section_request",
+  "query_string",
+  "request_body",
+  "section_response",
+  "response_body",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "device",
+   "fieldtype": "Link",
+   "options": "ZK Device",
+   "label": "Device",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "method",
+   "fieldtype": "Data",
+   "label": "Method",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "endpoint",
+   "fieldtype": "Data",
+   "label": "Endpoint",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "punches",
+   "fieldtype": "Int",
+   "label": "Punches Received",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "response_status",
+   "fieldtype": "Int",
+   "label": "Response Status",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_ms",
+   "fieldtype": "Float",
+   "label": "Duration (ms)",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ip",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "body_size",
+   "fieldtype": "Int",
+   "label": "Body Size (bytes)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_request",
+   "fieldtype": "Section Break",
+   "label": "Request"
+  },
+  {
+   "fieldname": "query_string",
+   "fieldtype": "Small Text",
+   "label": "Query String",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_body",
+   "fieldtype": "Code",
+   "label": "Request Body",
+   "description": "Truncated to 64 KB",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_response",
+   "fieldtype": "Section Break",
+   "label": "Response"
+  },
+  {
+   "fieldname": "response_body",
+   "fieldtype": "Code",
+   "label": "Response Body",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Code",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-05 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Request Log",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "in_create": 1,
+ "title_field": "endpoint",
+ "permissions": [
+  {
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "delete": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager"
+  }
+ ]
+}

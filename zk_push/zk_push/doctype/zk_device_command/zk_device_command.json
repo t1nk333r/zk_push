@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "creation": "2026-11-05 14:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device",
+  "command",
+  "column_break_1",
+  "status",
+  "sent_at",
+  "completed_at",
+  "return_code",
+  "section_response",
+  "response"
+ ],
+ "fields": [
+  {
+   "fieldname": "device",
+   "fieldtype": "Link",
+   "options": "ZK Device",
+   "label": "Device",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "command",
+   "fieldtype": "Data",
+   "label": "Command",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "CHECK = re-read server options and upload new logs (use after Reset Log Stamp). INFO = report device info. REBOOT = restart the device. Other commands require System Manager."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nSent\nDone\nFailed\nCancelled",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sent_at",
+   "fieldtype": "Datetime",
+   "label": "Sent At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_code",
+   "fieldtype": "Int",
+   "label": "Return Code",
+   "description": "0 = success; negative = failed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_response",
+   "fieldtype": "Section Break",
+   "label": "Response"
+  },
+  {
+   "fieldname": "response",
+   "fieldtype": "Code",
+   "label": "Response",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-05 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Device Command",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "autoincrement",
+ "naming_rule": "Autoincrement",
+ "title_field": "command",
+ "permissions": [
+  {
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "role": "HR Manager"
+  }
+ ]
+}

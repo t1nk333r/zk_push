@@ -1,0 +1,219 @@
+{
+ "actions": [],
+ "autoname": "field:serial_no",
+ "creation": "2026-11-05 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "serial_no",
+  "device_name",
+  "column_break_main",
+  "enabled",
+  "branch",
+  "auto_registered",
+  "section_break_processing",
+  "import_from",
+  "log_type_mode",
+  "column_break_processing",
+  "latitude",
+  "longitude",
+  "section_break_debug",
+  "debug_logging",
+  "section_break_status",
+  "last_seen",
+  "last_ip",
+  "column_break_status",
+  "push_version",
+  "att_stamp",
+  "device_info"
+ ],
+ "fields": [
+  {
+   "fieldname": "serial_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Serial Number",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Shown on the device under System Info → Device Info, e.g. ABCD123456789."
+  },
+  {
+   "fieldname": "device_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Device Name"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled",
+   "description": "Punches are accepted only from enabled devices."
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_registered",
+   "fieldtype": "Check",
+   "label": "Auto Registered",
+   "read_only": 1,
+   "description": "Created automatically when an unknown device first connected."
+  },
+  {
+   "fieldname": "section_break_processing",
+   "fieldtype": "Section Break",
+   "label": "Processing"
+  },
+  {
+   "fieldname": "import_from",
+   "fieldtype": "Datetime",
+   "label": "Ignore Punches Before",
+   "description": "Older punches (e.g. the device's history) are stored as Skipped instead of creating checkins."
+  },
+  {
+   "default": "Leave Blank",
+   "fieldname": "log_type_mode",
+   "fieldtype": "Select",
+   "label": "Checkin Log Type",
+   "options": "Leave Blank\nFrom Device Status",
+   "description": "Leave Blank lets the Shift Type decide (alternating IN/OUT). Use From Device Status only if staff press the Check-In / Check-Out keys on the device."
+  },
+  {
+   "fieldname": "column_break_processing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "6",
+   "description": "Only needed if HR Settings → Allow Geolocation Tracking is enabled."
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "6"
+  },
+  {
+   "fieldname": "section_break_debug",
+   "fieldtype": "Section Break",
+   "label": "Debugging",
+   "collapsible": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "debug_logging",
+   "fieldtype": "Check",
+   "label": "Debug Logging",
+   "description": "Record every request from this device in ZK Request Log (kept 7 days). Failed requests are always recorded. Turn off once the device works: it polls every few seconds."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Connection Status"
+  },
+  {
+   "fieldname": "last_seen",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_ip",
+   "fieldtype": "Data",
+   "label": "Last IP",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "push_version",
+   "fieldtype": "Data",
+   "label": "Push Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "att_stamp",
+   "fieldtype": "Data",
+   "label": "Attendance Log Stamp",
+   "read_only": 1,
+   "description": "Position of the last log received. Clear it (Actions → Reset Log Stamp) to make the device resend its full history on next connect."
+  },
+  {
+   "fieldname": "device_info",
+   "fieldtype": "Small Text",
+   "label": "Device Info",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [
+  {
+   "link_doctype": "ZK Punch",
+   "link_fieldname": "device",
+   "group": "Attendance"
+  },
+  {
+   "link_doctype": "ZK Device Command",
+   "link_fieldname": "device",
+   "group": "Debugging"
+  },
+  {
+   "link_doctype": "ZK Request Log",
+   "link_fieldname": "device",
+   "group": "Debugging"
+  }
+ ],
+ "modified": "2026-11-05 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Device",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "device_name",
+ "track_changes": 1
+}

@@ -1,0 +1,13 @@
+# Adds zk_push on top of an existing frappe_docker ERPNext + HRMS image (no apps.json rebuild needed).
+#
+#   docker build -f deploy/Containerfile --build-arg BASE_IMAGE=my-erpnext:v15 -t my-erpnext:v15-zkpush .
+#
+# Then use my-erpnext:v15-zkpush as the image for every service in compose.yaml.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+COPY --chown=frappe:frappe . /home/frappe/frappe-bench/apps/zk_push
+RUN cd /home/frappe/frappe-bench \
+	&& rm -rf apps/zk_push/deploy apps/zk_push/tools apps/zk_push/.git \
+	&& env/bin/pip install --no-cache-dir -e apps/zk_push \
+	&& env/bin/python -c "import zk_push.iclock"
