@@ -186,6 +186,22 @@ python tools/export_device_users.py 192.168.1.201 device_users.csv
 Device user IDs must be **unique across all devices** (ERPNext has one Attendance Device ID per
 employee). For a new branch, enrol people in a separate range, e.g. 2001+.
 
+## Backfill history from the LAN
+
+Normally the device uploads its own history on first connect. To copy a device's log into a
+site without using its push connection (e.g. a staging site, or a device that is not yet
+pointed at the server), `tools/backfill_from_device.py` reads the log over the LAN (read-only)
+and posts it to `/iclock/cdata` exactly as the device would. Already received punches are
+ignored, so it is safe to re-run. The ZK Device must exist and be enabled on the site.
+
+```bash
+pip install pyzk
+python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --dry-run
+python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --since 2026-01-01
+```
+
+If the device has a Comm Key, add `--comm-key <n>`.
+
 ## ZK Device settings
 
 | Field | Notes |
