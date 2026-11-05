@@ -69,13 +69,14 @@ bench get-app https://github.com/t1nk333r/zk_push
 bench --site <your-site> install-app zk_push
 ```
 
-On a bench with several sites, the app is only active on sites where you run `install-app`.
-Always pass `--site`, and reload gracefully instead of restarting everything:
+Then restart the web and worker processes so they load the new app (`bench restart`, or
+`sudo supervisorctl restart all`, or the `frappe-bench-*` systemd units). A graceful `HUP`
+reload is **not** enough the first time: bench runs gunicorn with `--preload`, so a newly
+installed app is only importable after a real restart.
 
-```bash
-sudo supervisorctl signal HUP frappe-bench-web:frappe-bench-frappe-web   # web, no downtime
-sudo supervisorctl restart frappe-bench-workers:                         # background workers
-```
+On a bench with several sites, the app is only active on sites where you run `install-app`;
+always pass `--site`. The restart is shared, so the other sites are unavailable for a few
+seconds.
 
 Update later with `bench update --apps zk_push` or `cd apps/zk_push && git pull`, then
 `bench --site <your-site> migrate`.
