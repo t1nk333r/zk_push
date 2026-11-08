@@ -113,16 +113,17 @@ def _receive(ex: _Exchange) -> str:
 
 	punches, invalid = protocol.parse_attlog(request.get_data(as_text=True))
 	if invalid:
+		# Every line is kept: they are acknowledged below, so the device will not send them again.
 		frappe.log_error(
 			title=f"ZK Push: {len(invalid)} unreadable ATTLOG line(s) from {device.name}",
-			message="\n".join(invalid[:50]),
+			message="\n".join(invalid),
 		)
 
 	processing.store_punches(device.name, punches, branch=device.branch)
 	ex.punches = len(punches)
 
 	stamp = request.args.get("Stamp")
-	if stamp and stamp != device.att_stamp:
+	if protocol.is_valid_stamp(stamp) and stamp != device.att_stamp:
 		frappe.db.set_value("ZK Device", device.name, "att_stamp", stamp, update_modified=False)
 
 	if punches:
@@ -143,10 +144,20 @@ def _next_command(device) -> str | None:
 	if not command:
 		return None
 	command = command[0]
+	try:
+		line = protocol.format_command(command.name, command.command)
+	except ValueError:
+		# A multi-line command would inject extra commands; fail it so it does not block the queue.
+		frappe.db.set_value(
+			"ZK Device Command",
+			command.name,
+			{"status": "Failed", "response": "Not sent: the command is not a single line."},
+		)
+		return None
 	frappe.db.set_value(
 		"ZK Device Command", command.name, {"status": "Sent", "sent_at": now_datetime()}
 	)
-	return protocol.format_command(command.name, command.command)
+	return line
 
 
 def _command_results(device, body: str):

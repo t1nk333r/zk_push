@@ -163,6 +163,69 @@ class TestIclock(FrappeTestCase):
 		device_request("devicecmd", "POST", f"ID={failed}&Return=-1002&CMD=REBOOT\n")
 		self.assertEqual(frappe.db.get_value("ZK Device Command", failed, "status"), "Failed")
 
+	def test_invalid_stamp_is_not_stored(self):
+		device_request("cdata")
+		self.enable_device(att_stamp="100")
+		for stamp in ("1\nTransFlag=None", "x" * 200):
+			status, _ = device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG", Stamp=stamp)
+			self.assertEqual(status, 200)
+		self.assertEqual(frappe.db.get_value("ZK Device", SN, "att_stamp"), "100")
+
+	def test_all_unreadable_lines_are_kept(self):
+		device_request("cdata")
+		self.enable_device()
+		body = "".join(f"bad line {i}\n" for i in range(60))
+		self.assertEqual(device_request("cdata", "POST", body, table="ATTLOG"), (200, "OK: 60"))
+		log = frappe.get_last_doc("Error Log", filters={"method": ("like", f"%unreadable ATTLOG%{SN}%")})
+		self.assertIn("bad line 59", log.error)
+
+	def test_sent_command_cannot_be_reset(self):
+		device_request("cdata")
+		self.enable_device()
+		from zk_push import api
+
+		name = api.queue_command(SN, "REBOOT")
+		device_request("getrequest")
+		command = frappe.get_doc("ZK Device Command", name)
+		command.status = "Pending"
+		with self.assertRaises(frappe.ValidationError):
+			command.save()
+		self.assertEqual(device_request("getrequest")[1], "OK")
+
+	def test_multiline_command_is_failed_not_sent(self):
+		device_request("cdata")
+		self.enable_device()
+		name = frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "CHECK"}).insert().name
+		frappe.db.set_value("ZK Device Command", name, "command", "CHECK\nC:99:CLEAR LOG")
+		self.assertEqual(device_request("getrequest")[1], "OK")
+		self.assertEqual(frappe.db.get_value("ZK Device Command", name, "status"), "Failed")
+
+	def test_stale_form_save_keeps_server_fields(self):
+		device_request("cdata")
+		self.enable_device(att_stamp="100")
+		stale = frappe.get_doc("ZK Device", SN)
+		device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG", Stamp="500")
+		stale.device_name = "Front door"
+		stale.save()
+		self.assertEqual(frappe.db.get_value("ZK Device", SN, "att_stamp"), "500")
+
+	def test_serial_number_cannot_change(self):
+		device_request("cdata")
+		device = frappe.get_doc("ZK Device", SN)
+		device.serial_no = "ZKTEST000002"
+		with self.assertRaises(frappe.ValidationError):
+			device.save()
+
+	def test_reset_log_stamp(self):
+		device_request("cdata")
+		self.enable_device(att_stamp="500")
+		from zk_push import api
+
+		name = api.reset_log_stamp(SN)
+		self.assertFalse(frappe.db.get_value("ZK Device", SN, "att_stamp"))
+		self.assertEqual(frappe.db.get_value("ZK Device Command", name, "command"), "CHECK")
+		self.assertIn("ATTLOGStamp=None", device_request("cdata", options="all")[1])
+
 	def test_custom_command_requires_system_manager(self):
 		device_request("cdata")
 		frappe.set_user("Guest")

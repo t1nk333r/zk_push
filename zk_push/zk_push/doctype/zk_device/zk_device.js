@@ -46,10 +46,18 @@ frappe.ui.form.on("ZK Device", {
 					__(
 						"The device will resend its full attendance history. Already received punches are ignored. A CHECK command is queued so this happens without rebooting the device. Continue?"
 					),
-					async () => {
-						await frm.set_value("att_stamp", "");
-						await frm.save();
-						queue_command(frm, "CHECK");
+					() => {
+						frappe.call({
+							method: "zk_push.api.reset_log_stamp",
+							args: { device: frm.doc.name },
+							callback() {
+								frappe.show_alert({
+									message: __("Log stamp cleared and CHECK queued"),
+									indicator: "green",
+								});
+								frm.reload_doc();
+							},
+						});
 					}
 				);
 			},

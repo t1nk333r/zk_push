@@ -34,6 +34,7 @@
    "in_list_view": 1,
    "label": "Serial Number",
    "reqd": 1,
+   "set_only_once": 1,
    "unique": 1,
    "description": "Shown on the device under System Info → Device Info, e.g. ABCD123456789."
   },
@@ -182,7 +183,7 @@
    "group": "Debugging"
   }
  ],
- "modified": "2026-11-05 14:00:00.000000",
+ "modified": "2026-11-08 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Device",

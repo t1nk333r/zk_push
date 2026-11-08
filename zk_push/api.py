@@ -48,6 +48,14 @@ def queue_command(device: str, command: str) -> int:
 	return doc.name
 
 
+@frappe.whitelist(methods=["POST"])
+def reset_log_stamp(device: str) -> int:
+	"""Clear the device's ATTLOGStamp and queue CHECK, so it resends its full log without a reboot."""
+	frappe.only_for(MANAGER_ROLES)
+	frappe.db.set_value("ZK Device", device, "att_stamp", None, update_modified=False)
+	return queue_command(device, "CHECK")
+
+
 @frappe.whitelist()
 def device_summary(device: str) -> dict:
 	frappe.has_permission("ZK Device", doc=device, throw=True)

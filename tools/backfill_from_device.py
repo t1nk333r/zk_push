@@ -33,7 +33,8 @@ def read_device(ip, comm_key):
 
 
 def post(site, serial, lines):
-	query = urllib.parse.urlencode({"SN": serial, "table": "ATTLOG", "Stamp": "0"})
+	# No Stamp: the site would store it as the device's ATTLOGStamp and the device would resend its log.
+	query = urllib.parse.urlencode({"SN": serial, "table": "ATTLOG"})
 	req = urllib.request.Request(
 		f"{site.rstrip('/')}/iclock/cdata?{query}",
 		data="".join(lines).encode(),

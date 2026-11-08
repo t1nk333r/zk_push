@@ -34,6 +34,29 @@ class TestProtocol(unittest.TestCase):
 		self.assertEqual([p.pin for p in punches], ["9"])
 		self.assertEqual(len(invalid), 3)
 
+	def test_parse_mixed_space_and_tab(self):
+		punches, invalid = protocol.parse_attlog("1001 2026-11-05 08:02:11\t0\t1\n")
+		self.assertEqual(invalid, [])
+		self.assertEqual(punches[0].pin, "1001")
+		self.assertEqual(punches[0].status, 0)
+		self.assertEqual(punches[0].verify, 1)
+
+	def test_only_cr_lf_split_lines(self):
+		punches, invalid = protocol.parse_attlog("1\t2026-11-05 08:02:11\t0\t1\tab\x1ccd\r9\t2026-11-05 09:00:00\n")
+		self.assertEqual(invalid, [])
+		self.assertEqual([p.pin for p in punches], ["1", "9"])
+		self.assertEqual(punches[0].workcode, "ab\x1ccd")
+
+	def test_fields_are_bounded(self):
+		punches, _ = protocol.parse_attlog(f"1\t2026-11-05 08:02:11\t99999999999\t١\t{'w' * 300}\n")
+		self.assertIsNone(punches[0].status)
+		self.assertIsNone(punches[0].verify)
+		self.assertEqual(len(punches[0].workcode), protocol.MAX_WORKCODE)
+
+	def test_trailing_newline_sn_and_pin_rejected(self):
+		self.assertFalse(protocol.is_valid_sn("ABCDEF\n"))
+		self.assertEqual(protocol.parse_attlog("١\t2026-11-05 08:02:11\n")[0], [])
+
 	def test_punch_name_is_deterministic(self):
 		t = datetime(2026, 11, 5, 8, 2, 11)
 		self.assertEqual(protocol.punch_name("ABCD123456789", "1001", t), "ABCD123456789-1001-20261105080211")
@@ -61,8 +84,18 @@ class TestProtocol(unittest.TestCase):
 		self.assertIn("TransFlag=TransData AttLog\n", text)
 		self.assertIn("ATTLOGStamp=None\n", protocol.build_handshake("X1234567"))
 
+	def test_handshake_ignores_invalid_stamp(self):
+		for stamp in ("1\nTransFlag=None", "abc", "1" * 21, "١"):
+			text = protocol.build_handshake("ABCD123456789", stamp)
+			self.assertIn("ATTLOGStamp=None\n", text)
+			self.assertEqual(text.count("TransFlag="), 1)
+		self.assertTrue(protocol.is_valid_stamp("9999"))
+		self.assertFalse(protocol.is_valid_stamp(None))
+
 	def test_format_command(self):
 		self.assertEqual(protocol.format_command(12, "REBOOT"), "C:12:REBOOT\n")
+		with self.assertRaises(ValueError):
+			protocol.format_command(13, "CHECK\nC:14:CLEAR LOG")
 
 	def test_parse_devicecmd(self):
 		body = "ID=3&Return=0&CMD=CHECK\nID=4&Return=0&CMD=INFO\n~DeviceName=MB20-VL\nUserCount=27\nID=5&Return=-1002&CMD=XYZ\n"
