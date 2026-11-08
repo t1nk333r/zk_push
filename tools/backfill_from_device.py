@@ -32,6 +32,11 @@ def read_device(ip, comm_key):
 	return serial, records
 
 
+def attlog_lines(records):
+	# ATTLOG line: PIN, time, state key (pyzk "punch"), verify type (pyzk "status"), workcode
+	return [f"{r.user_id}\t{r.timestamp:%Y-%m-%d %H:%M:%S}\t{r.punch}\t{r.status}\t0\n" for r in records]
+
+
 def post(site, serial, lines):
 	# No Stamp: the site would store it as the device's ATTLOGStamp and the device would resend its log.
 	query = urllib.parse.urlencode({"SN": serial, "table": "ATTLOG"})
@@ -71,8 +76,7 @@ def main():
 	if args.dry_run:
 		return
 
-	# ATTLOG line: PIN, time, state key (pyzk "punch"), verify type (pyzk "status"), workcode
-	lines = [f"{r.user_id}\t{r.timestamp:%Y-%m-%d %H:%M:%S}\t{r.punch}\t{r.status}\t0\n" for r in records]
+	lines = attlog_lines(records)
 	for start in range(0, len(lines), CHUNK):
 		status, text = post(args.site_url, serial, lines[start : start + CHUNK])
 		print(f"  punches {start + 1}-{start + len(lines[start:start + CHUNK])}: HTTP {status} {text.strip()[:80]}")

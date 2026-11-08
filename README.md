@@ -171,6 +171,47 @@ name and branch and tick **Enabled**.
 Finally set a **Comm Key** on the device (COMM. → PC Connection): push mode does not use it,
 and it stops anyone on the LAN from reading or wiping the device over TCP 4370.
 
+### Devices without Cloud Server Setting (pull mode)
+
+Some models and firmwares cannot push (COMM. has no *Cloud Server Setting* / ADMS). For these,
+run `tools/pull_from_device.py` on any always-on machine on the device's LAN (PC, Raspberry Pi,
+NAS). Every 2 minutes it reads the log over TCP 4370 (read-only) and posts new punches to
+`/iclock/cdata` exactly as a push device would, so everything else in this README applies.
+The machine needs outbound access to the site; nothing has to reach the device from outside.
+
+```bash
+pip install pyzk
+python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234
+```
+
+On its first run the device appears under **ZK Device** as *New - Not Enabled* (the script
+logs HTTP 403 until then). Set *Ignore Punches Before*, tick **Enabled**, and the next run
+sends the history. The last sent punch time is kept in `tools/zk_pull_<ip>.json`.
+
+Differences from push: punches arrive within `--interval` seconds (default 120) instead of
+instantly, the device shows as online only while the script runs, and device commands
+(Reboot, Request Device Info, ...) are not delivered. To keep it running on Linux:
+
+```ini
+# /etc/systemd/system/zk-pull.service
+[Unit]
+Description=ZK Push pull agent
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234
+Restart=always
+User=nobody
+WorkingDirectory=/opt/zk_push/tools
+
+[Install]
+WantedBy=multi-user.target
+```
+
+(`User=nobody` needs write access to the state file: pass `--state /var/lib/zk-pull/state.json`
+and create that directory for it.) On Windows, run it with `--once` from Task Scheduler every
+few minutes.
+
 ## Map employees
 
 Set **Employee → Attendance Device ID** to the person's user ID on the device, or use
