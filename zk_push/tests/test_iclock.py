@@ -210,11 +210,13 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("ZK Device", SN, "att_stamp"), "500")
 
 	def test_serial_number_cannot_change(self):
+		# Frappe keeps a field:-named field in sync with the name; set_only_once also locks it in the form.
 		device_request("cdata")
 		device = frappe.get_doc("ZK Device", SN)
 		device.serial_no = "ZKTEST000002"
-		with self.assertRaises(frappe.ValidationError):
-			device.save()
+		device.save()
+		self.assertEqual(frappe.db.get_value("ZK Device", SN, "serial_no"), SN)
+		self.assertFalse(frappe.db.exists("ZK Device", "ZKTEST000002"))
 
 	def test_reset_log_stamp(self):
 		device_request("cdata")
