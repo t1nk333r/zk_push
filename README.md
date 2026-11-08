@@ -184,6 +184,10 @@ pip install pyzk
 python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234
 ```
 
+Ready-made packages: `make -C deploy/pull-agent pkg` builds `dist/zk-pull-agent-<version>-amd64.tar.gz`
+(PC/server), `-arm64.tar.gz` (Raspberry Pi) — Docker image + `compose.yaml` + `.env.example` — and
+`-python.zip` (no Docker, e.g. Windows). Each contains `INSTALL.md`; copy one to the office machine.
+
 On its first run the device appears under **ZK Device** as *New - Not Enabled* (the script
 logs HTTP 403 until then). Set *Ignore Punches Before*, tick **Enabled**, and the next run
 sends the history. The last sent punch time is kept in `tools/zk_pull_<ip>.json`.

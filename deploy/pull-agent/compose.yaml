@@ -1,0 +1,27 @@
+# Pull agent for one device. Settings come from .env (copy .env.example).
+#   docker compose up -d          start (and on every boot)
+#   docker compose logs -f        watch
+# For a second device, copy this folder with its own .env (each gets its own state volume).
+services:
+  zk-pull:
+    image: zk-pull-agent:${ZK_PULL_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}  # log timestamps only; punch times come from the device as-is
+    command:
+      - "${DEVICE_IP:?set DEVICE_IP in .env}"
+      - "${SITE_URL:?set SITE_URL in .env}"
+      - --comm-key
+      - "${COMM_KEY:-0}"
+      - --interval
+      - "${INTERVAL:-120}"
+    volumes:
+      - state:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  state:

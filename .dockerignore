@@ -1,3 +1,7 @@
 .git
 **/__pycache__
 *.csv
+tools/zk_pull_*
+.env
+*.tar.gz
+dist/

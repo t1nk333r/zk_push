@@ -5,3 +5,5 @@ __pycache__/
 node_modules/
 *.csv
 tools/zk_pull_*.json
+dist/
+deploy/pull-agent/.env
