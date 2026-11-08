@@ -4,7 +4,7 @@
 # For a second device, copy this folder with its own .env (each gets its own state volume).
 services:
   zk-pull:
-    image: zk-pull-agent:${ZK_PULL_TAG:-latest}
+    image: ${ZK_PULL_IMAGE:-zk-pull-agent}:${ZK_PULL_TAG:-latest}
     restart: unless-stopped
     environment:
       TZ: ${TZ:-UTC}  # log timestamps only; punch times come from the device as-is

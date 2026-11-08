@@ -1,0 +1,99 @@
+# Pull agent image: test and build on every change; publish to GHCR from main and v* tags;
+# attach the install packages (make pkg) to the GitHub release of a v* tag.
+name: pull-agent
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - deploy/pull-agent/**
+      - tools/pull_from_device.py
+      - tools/backfill_from_device.py
+      - tools/export_device_users.py
+      - zk_push/__init__.py
+      - .github/workflows/pull-agent.yml
+  pull_request:
+    paths:
+      - deploy/pull-agent/**
+      - tools/**
+      - .github/workflows/pull-agent.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/zk-pull-agent
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' zk_push/__init__.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag must match __version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "${GITHUB_REF_NAME}" = "v${{ steps.version.outputs.version }}"
+
+      - name: Smoke test (amd64)
+        run: make -C deploy/pull-agent test
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/pull-agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  packages:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+      - name: Build packages
+        run: make -C deploy/pull-agent pkg
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/zk-pull-agent-*
+            dist/SHA256SUMS

@@ -26,6 +26,10 @@ docker compose up -d
 docker compose logs -f
 ```
 
+With internet access you can skip the package: copy `compose.yaml` and `.env.example` from the
+repository, set `ZK_PULL_IMAGE=ghcr.io/t1nk333r/zk-pull-agent` and `ZK_PULL_TAG=latest` in `.env`,
+and `docker compose up -d` pulls the image (amd64 and arm64).
+
 It restarts on boot. To update: load the new image, set `ZK_PULL_TAG` in `.env`, `docker compose up -d`.
 The state (which punches were sent) is kept in the `state` volume across updates.
 
