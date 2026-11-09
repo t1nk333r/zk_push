@@ -19,13 +19,10 @@ the device's whole log on every run, which takes longer on devices holding a lar
 import argparse
 import json
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backfill_from_device import CHUNK, attlog_lines, post, read_device, since_date
+from backfill_from_device import CHUNK, accepted, attlog_lines, cdata_request, post, read_device, since_date
 
 OVERLAP = timedelta(days=1)
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -63,20 +60,16 @@ def save_state(path, last_punch, records):
 
 def heartbeat(site, serial):
 	"""Handshake GET, so the site shows the device as online even when nobody punches."""
-	query = urllib.parse.urlencode({"SN": serial, "options": "all"})
-	try:
-		with urllib.request.urlopen(f"{site.rstrip('/')}/iclock/cdata?{query}", timeout=30) as resp:
-			return resp.status
-	except urllib.error.HTTPError as e:
-		return e.code
+	return cdata_request(site, {"SN": serial, "options": "all"}, timeout=30)
 
 
 def sync(args, state_path) -> bool:
 	"""One pull. Returns False if the site did not accept it (retried next run)."""
 	serial, records = read_device(args.device_ip, args.comm_key)
-	status = heartbeat(args.site_url, serial)
+	status, text = heartbeat(args.site_url, serial)
 	if status != 200:
-		log(f"Device {serial}: the site answered HTTP {status} (is the ZK Device enabled?)")
+		hint = text.strip()[:120] if 300 <= status < 400 else "is the ZK Device enabled?"
+		log(f"Device {serial}: the site answered HTTP {status} ({hint})")
 		return False
 
 	last, sent = load_state(state_path)
@@ -91,7 +84,7 @@ def sync(args, state_path) -> bool:
 	lines = attlog_lines(new)
 	for start in range(0, len(lines), CHUNK):
 		status, text = post(args.site_url, serial, lines[start : start + CHUNK])
-		if status != 200:
+		if not accepted(status, text):
 			log(f"Device {serial}: upload rejected, HTTP {status} {text.strip()[:80]}; retrying next run")
 			return False
 	last = max(last, window[-1].timestamp) if last else window[-1].timestamp

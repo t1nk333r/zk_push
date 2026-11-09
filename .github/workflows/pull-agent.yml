@@ -12,11 +12,14 @@ on:
       - tools/backfill_from_device.py
       - tools/export_device_users.py
       - zk_push/__init__.py
+      - .dockerignore
       - .github/workflows/pull-agent.yml
   pull_request:
     paths:
       - deploy/pull-agent/**
       - tools/**
+      - zk_push/__init__.py
+      - .dockerignore
       - .github/workflows/pull-agent.yml
   workflow_dispatch:
 

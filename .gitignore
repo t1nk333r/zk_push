@@ -7,3 +7,5 @@ node_modules/
 tools/zk_pull_*.json
 dist/
 deploy/pull-agent/.env
+deploy/esp32/firmware/.pio/
+deploy/esp32/firmware/include/config.h

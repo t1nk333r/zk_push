@@ -193,6 +193,17 @@ class TestIclock(FrappeTestCase):
 		log = frappe.get_last_doc("Error Log", filters={"method": ("like", f"%unreadable ATTLOG%{SN}%")})
 		self.assertIn("bad line 59", log.error)
 
+	def test_unreadable_lines_log_is_capped(self):
+		device_request("cdata")
+		self.enable_device()
+		limit = iclock.MAX_LOGGED_INVALID_LINES
+		body = "".join(f"bad line {i}\n" for i in range(limit + 5))
+		self.assertEqual(device_request("cdata", "POST", body, table="ATTLOG"), (200, f"OK: {limit + 5}"))
+		log = frappe.get_last_doc("Error Log", filters={"method": ("like", f"%unreadable ATTLOG%{SN}%")})
+		self.assertIn(f"bad line {limit - 1}\n", log.error)
+		self.assertNotIn(f"bad line {limit}\n", log.error)
+		self.assertIn("... and 5 more line(s) not shown", log.error)
+
 	def test_sent_command_cannot_be_reset(self):
 		device_request("cdata")
 		self.enable_device()

@@ -206,18 +206,18 @@ Description=ZK Push pull agent
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026
+ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026 --state /var/lib/zk-pull/state.json
 Restart=always
 User=nobody
+# Creates /var/lib/zk-pull, writable by the service user, for the state file.
+StateDirectory=zk-pull
 WorkingDirectory=/opt/zk_push/tools
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-(`User=nobody` needs write access to the state file: pass `--state /var/lib/zk-pull/state.json`
-and create that directory for it.) On Windows, run it with `--once` from Task Scheduler every
-few minutes.
+On Windows, run it with `--once` from Task Scheduler every few minutes.
 
 ## Map employees
 
@@ -229,7 +229,7 @@ CSV over the LAN to help with matching:
 
 ```bash
 pip install pyzk
-python tools/export_device_users.py 192.168.1.201 device_users.csv
+python tools/export_device_users.py 192.168.1.201 device_users.csv --comm-key 1234
 ```
 
 Device user IDs must be **unique across all devices** (ERPNext has one Attendance Device ID per
@@ -250,6 +250,9 @@ python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --sin
 ```
 
 If the device has a Comm Key, add `--comm-key <n>`.
+
+Backfilled punches go through the same checks as pushed ones: with *Discard Instead of Skipping*
+on, punches older than *Ignore Punches Before* are dropped, not stored.
 
 ## ZK Device settings
 

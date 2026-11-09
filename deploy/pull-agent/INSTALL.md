@@ -33,14 +33,17 @@ With internet access you can skip the package: copy `compose.yaml` and `.env.exa
 repository, set `ZK_PULL_IMAGE=ghcr.io/t1nk333r/zk-pull-agent` and `ZK_PULL_TAG=latest` in `.env`,
 and `docker compose up -d` pulls the image (amd64 and arm64).
 
-It restarts on boot. To update: load the new image, set `ZK_PULL_TAG` in `.env`, `docker compose up -d`.
-The state (which punches were sent) is kept in the `state` volume across updates.
+It restarts on boot. To update: load the new image, copy your `.env` into the new folder (or keep
+using the old one), set `ZK_PULL_TAG`, then `docker compose up -d`. The state (which punches were
+sent) is kept in the `<ZK_PULL_NAME>_state` volume, so keep `ZK_PULL_NAME` the same; stop the old
+folder's agent first (`docker compose down` there) so two agents never pull the same device. For a
+second device, use a separate folder with a different `ZK_PULL_NAME`.
 
 Other tools in the image:
 
 ```bash
-docker compose run --rm --entrypoint python zk-pull /app/backfill_from_device.py <ip> <site> --dry-run
-docker compose run --rm --entrypoint python zk-pull /app/export_device_users.py <ip> > users.csv
+docker compose run --rm -T --entrypoint python zk-pull /app/backfill_from_device.py <ip> <site> --comm-key <n> --dry-run
+docker compose run --rm -T --entrypoint python zk-pull /app/export_device_users.py <ip> --comm-key <n> > users.csv
 ```
 
 ## Python package (`zk-pull-agent-<version>-python.zip`), e.g. Windows
@@ -53,5 +56,5 @@ python pull_from_device.py <device_ip> https://erp.example.com --comm-key <n> --
 ```
 
 On Windows, add a Task Scheduler task that runs every 5 minutes:
-`python C:\zk-pull\pull_from_device.py <device_ip> https://erp.example.com --once`
+`python C:\zk-pull\pull_from_device.py <device_ip> https://erp.example.com --comm-key <n> --since 2026 --once`
 (`--once` exits 1 if the pull failed, so failures show in the task history.)

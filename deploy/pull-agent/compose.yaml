@@ -1,7 +1,10 @@
 # Pull agent for one device. Settings come from .env (copy .env.example).
 #   docker compose up -d          start (and on every boot)
 #   docker compose logs -f        watch
-# For a second device, copy this folder with its own .env (each gets its own state volume).
+# The project name (ZK_PULL_NAME) also names the state volume: keep it when updating to a newer
+# package, so the agent keeps its place. For a second device, use another folder and another name.
+name: ${ZK_PULL_NAME:-zk-pull}
+
 services:
   zk-pull:
     image: ${ZK_PULL_IMAGE:-zk-pull-agent}:${ZK_PULL_TAG:-latest}
