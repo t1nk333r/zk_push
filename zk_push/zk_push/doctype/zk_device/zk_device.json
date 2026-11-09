@@ -13,6 +13,7 @@
   "auto_registered",
   "section_break_processing",
   "import_from",
+  "discard_before_import",
   "log_type_mode",
   "column_break_processing",
   "latitude",
@@ -83,6 +84,14 @@
    "fieldtype": "Datetime",
    "label": "Ignore Punches Before",
    "description": "Older punches (e.g. the device's history) are stored as Skipped instead of creating checkins."
+  },
+  {
+   "default": "0",
+   "depends_on": "import_from",
+   "fieldname": "discard_before_import",
+   "fieldtype": "Check",
+   "label": "Discard Instead of Skipping",
+   "description": "Drop older punches when they arrive instead of storing them as Skipped. They cannot be recovered from the site later; only from the device, if it still has them."
   },
   {
    "default": "Leave Blank",
@@ -183,7 +192,7 @@
    "group": "Debugging"
   }
  ],
- "modified": "2026-11-08 12:00:00.000000",
+ "modified": "2026-11-09 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Device",

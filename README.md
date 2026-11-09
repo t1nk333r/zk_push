@@ -258,6 +258,7 @@ If the device has a Comm Key, add `--comm-key <n>`.
 | Enabled | Punches are only accepted from enabled devices |
 | Branch | Copied onto each punch, for reporting / multi-location |
 | Ignore Punches Before | Older punches are stored as Skipped (retry them after changing the date) |
+| Discard Instead of Skipping | Drop punches before *Ignore Punches Before* as they arrive instead of storing them. The push equivalent of the pull agent's `--since`; dropped punches can only be recovered from the device |
 | Checkin Log Type | *Leave Blank* (default) lets the Shift Type alternate IN/OUT. *From Device Status* uses the Check-In/Check-Out key pressed on the device |
 | Latitude / Longitude | Only needed if HR Settings → *Allow Geolocation Tracking* is on |
 | Debug Logging | Record every request in ZK Request Log; turn off once working |

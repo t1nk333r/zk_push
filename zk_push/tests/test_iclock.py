@@ -105,6 +105,20 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual(punch.status, "Created")
 		self.assertEqual(frappe.db.get_value("Employee Checkin", punch.employee_checkin, "log_type"), "OUT")
 
+	def test_discard_before_import(self):
+		device_request("cdata")
+		self.enable_device(import_from="2026-01-01 00:00:00", discard_before_import=1)
+		body = "7001\t2024-06-01 08:00:00\t0\t1\n7001\t2026-01-01 00:00:00\t0\t1\n7001\t2026-11-05 08:00:00\t0\t1\n"
+		# Every line is acknowledged, so the device does not resend the discarded ones.
+		self.assertEqual(device_request("cdata", "POST", body, table="ATTLOG"), (200, "OK: 3"))
+		self.assertFalse(frappe.db.exists("ZK Punch", f"{SN}-7001-20240601080000"))
+		self.assertEqual(frappe.db.count("ZK Punch", {"device": SN}), 2)
+
+		# Without the flag, older punches are kept as Skipped.
+		frappe.db.set_value("ZK Device", SN, "discard_before_import", 0)
+		device_request("cdata", "POST", body, table="ATTLOG")
+		self.assertEqual(frappe.db.get_value("ZK Punch", f"{SN}-7001-20240601080000", "status"), "Skipped")
+
 	def test_mapping_employee_later_requeues_unmatched(self):
 		device_request("cdata")
 		self.enable_device()

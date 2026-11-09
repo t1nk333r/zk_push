@@ -32,6 +32,8 @@ DEVICE_FIELDS = [
 	"push_version",
 	"device_info",
 	"att_stamp",
+	"import_from",
+	"discard_before_import",
 ]
 
 
@@ -119,6 +121,12 @@ def _receive(ex: _Exchange) -> str:
 			message="\n".join(invalid),
 		)
 
+	received = len(punches)
+	if device.discard_before_import and device.import_from:
+		# Push devices upload their whole history on first connect; drop the part before the cut-off.
+		import_from = get_datetime(device.import_from)
+		punches = [p for p in punches if p.time >= import_from]
+
 	processing.store_punches(device.name, punches, branch=device.branch)
 	ex.punches = len(punches)
 
@@ -130,7 +138,7 @@ def _receive(ex: _Exchange) -> str:
 		processing.enqueue_processing()
 
 	# Acknowledge every line (including unreadable ones), otherwise the device resends forever.
-	return f"OK: {len(punches) + len(invalid)}"
+	return f"OK: {received + len(invalid)}"
 
 
 def _next_command(device) -> str | None:
