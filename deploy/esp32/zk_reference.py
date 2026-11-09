@@ -19,8 +19,9 @@ Protocol, as used here (all integers little-endian):
   log       CMD_PREPARE_BUFFER(u8 1, i16 CMD_ATTLOG_RRQ, i32 0, i32 0) -> payload[1:5] = buffer size;
             the buffer is u32 data length + records of RECORD_SIZE bytes, oldest first
   read      CMD_READ_BUFFER(i32 start, i32 size) -> CMD_DATA(bytes), or CMD_PREPARE_DATA then
-            CMD_DATA packets then ACK_OK. start=0 reads from the length header; otherwise start
-            is an offset into the records, so record k is at start = k * RECORD_SIZE. Reading only
+            CMD_DATA packets then ACK_OK. start=0 reads from the length header (so record 0 is
+            read as start=0, size=4+RECORD_SIZE, dropping 4 bytes); any other start is an offset
+            into the records, so record k (k >= 1) is at start = k * RECORD_SIZE. Reading only
             new records therefore costs a few hundred bytes, not the whole log.
   record    u16 uid, char[24] user_id, u8 verify, u32 time, u8 state, 8 bytes reserved (40 bytes)
   time      seconds encoded as ((((y-2000)*12 + m-1)*31 + d-1)*24 + h)*60 + min)*60 + s
@@ -124,8 +125,12 @@ class Device:
 			raise ConnectionError(f"device cannot prepare the log (code {code})")
 		data = b""
 		while len(data) < count * RECORD_SIZE:  # the firmware would use a small fixed chunk
-			want = min(4096, count * RECORD_SIZE - len(data))
-			data += self._read_chunk(first * RECORD_SIZE + len(data), want)
+			want = min(4000, count * RECORD_SIZE - len(data))
+			start = first * RECORD_SIZE + len(data)
+			if start == 0:  # start 0 means the u32 length header, not record 0
+				data += self._read_chunk(0, 4 + RECORD_SIZE)[4:]
+			else:
+				data += self._read_chunk(start, want)
 		self.command(CMD_FREE_DATA)
 		return [data[i : i + RECORD_SIZE] for i in range(0, len(data), RECORD_SIZE)]
 
@@ -159,15 +164,86 @@ def attlog_line(record: bytes) -> str:
 	return f"{pin}\t{decode_time(timestamp):%Y-%m-%d %H:%M:%S}\t{state}\t{verify}\t0"
 
 
+def parse_record(record: bytes) -> tuple[str, int]:
+	"""(pin, encoded time): the fingerprint the firmware stores for the last sent record."""
+	_uid, user_id, _verify, timestamp, _state = struct.unpack("<H24sBIB", record[:32])
+	return user_id.split(b"\0")[0].decode(errors="replace"), timestamp
+
+
+def sync(device: Device, site: str, state_path: str, since: datetime, body_max: int = 8192) -> None:
+	"""One pull, mirroring firmware/src/sync.cpp step by step (state in a JSON file instead of NVS)."""
+	import json
+	import urllib.error
+	import urllib.request
+
+	serial = device.serial_number()
+	records, _capacity = device.record_count()
+
+	def post(query: str, body: bytes | None = None) -> int:
+		req = urllib.request.Request(f"{site.rstrip('/')}/iclock/cdata?SN={serial}&{query}", data=body)
+		try:
+			with urllib.request.urlopen(req, timeout=30) as resp:
+				return resp.status
+		except urllib.error.HTTPError as e:
+			return e.code
+
+	if post("options=all") != 200:
+		raise SystemExit("the site rejected the heartbeat (is the ZK Device enabled?)")
+	try:
+		saved = json.load(open(state_path))
+	except FileNotFoundError:
+		saved = {"next": 0, "fp": None}
+
+	if saved["next"] > records:
+		print("log shorter than before, starting from record 0")
+		saved = {"next": 0, "fp": None}
+	elif saved["next"] > 0 and list(parse_record(device.read_records(saved["next"] - 1, 1)[0])) != saved["fp"]:
+		print("log changed, starting from record 0")
+		saved = {"next": 0, "fp": None}
+
+	since_value = (((((since.year - 2000) * 12 + since.month - 1) * 31 + since.day - 1) * 24) * 60) * 60
+	body, lines, pending = b"", 0, dict(saved)
+
+	def flush():
+		nonlocal body, lines, saved
+		if body:
+			status = post("table=ATTLOG", body)
+			if status != 200:
+				raise SystemExit(f"upload rejected (HTTP {status}), retrying next run")
+			print(f"sent {lines} punch(es)")
+		saved = dict(pending)
+		json.dump(saved, open(state_path, "w"))
+		body, lines = b"", 0
+
+	for index in range(saved["next"], records, 100):
+		for k, record in enumerate(device.read_records(index, min(100, records - index))):
+			pin, timestamp = parse_record(record)
+			if pin and timestamp >= since_value:
+				line = (attlog_line(record) + "\n").encode()
+				if len(body) + len(line) > body_max:
+					flush()
+				body += line
+				lines += 1
+			pending = {"next": index + k + 1, "fp": [pin, timestamp]}
+	flush()
+	print(f"done: next record {saved['next']} of {records}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("device_ip")
 	parser.add_argument("--comm-key", type=int, default=0)
 	parser.add_argument("--from-record", type=int, help="First record to print (default: the last 5)")
+	parser.add_argument("--sync", metavar="SITE_URL", help="Run one firmware-style pull to this site instead")
+	parser.add_argument("--state", default="zk_reference_state.json", help="State file for --sync")
+	parser.add_argument("--since", default="2000-01-01", help="For --sync: never send punches before (YYYY-MM-DD)")
 	args = parser.parse_args()
 
 	device = Device(args.device_ip, args.comm_key)
 	try:
+		if args.sync:
+			sync(device, args.sync, args.state, datetime.strptime(args.since, "%Y-%m-%d"))
+			return
 		records, capacity = device.record_count()
 		print(f"serial {device.serial_number()}, {records} of {capacity} records")
 		first = args.from_record if args.from_record is not None else max(records - 5, 0)

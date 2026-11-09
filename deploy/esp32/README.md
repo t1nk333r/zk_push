@@ -1,8 +1,9 @@
-# ESP32 pull agent: exploration
+# ESP32 pull agent
 
-Status: **exploration**. Nothing here is built yet except `zk_reference.py`, which is the spec the
-firmware would port. Goal: replace the Raspberry Pi running `tools/pull_from_device.py` with a
-~50 SAR ESP32 that does the same job for devices without ADMS push.
+Status: **prototype firmware** in `firmware/`: it builds and passes its unit tests, but has not yet
+run on a board. `zk_reference.py` is the spec it ports, verified against the real device. Goal:
+replace the Raspberry Pi running `tools/pull_from_device.py` with a ~50 SAR ESP32 that does the
+same job for devices without ADMS push.
 
 ## What was verified on the office device
 
