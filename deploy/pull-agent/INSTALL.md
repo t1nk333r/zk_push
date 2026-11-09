@@ -12,6 +12,9 @@ Run it on an always-on machine on the same network as the device. It needs to re
    (COMM. → PC Connection) if one is set.
 2. On the site, the device appears under **ZK Device** after the agent's first run. Set
    *Ignore Punches Before*, then tick **Enabled**. Until then the agent logs `HTTP 403`.
+3. To skip old years entirely, set `SINCE=2026` in `.env` (or `--since 2026`): punches before it
+   are never sent. The device's whole log is still read over the LAN each run; only the upload
+   is limited.
 
 ## Docker package (`zk-pull-agent-<version>-amd64|arm64.tar.gz`)
 
@@ -46,7 +49,7 @@ Needs Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
-python pull_from_device.py <device_ip> https://erp.example.com --comm-key <n>
+python pull_from_device.py <device_ip> https://erp.example.com --comm-key <n> --since 2026
 ```
 
 On Windows, add a Task Scheduler task that runs every 5 minutes:

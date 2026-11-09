@@ -5,7 +5,7 @@ device is changed) and posts it to the site's /iclock/cdata endpoint exactly as 
 push would. Punches the site already has are ignored, so it is safe to run more than once.
 
 Usage (requires: pip install pyzk):
-  python backfill_from_device.py <device_ip> <site_url> [--since YYYY-MM-DD] [--comm-key N] [--dry-run]
+  python backfill_from_device.py <device_ip> <site_url> [--since 2026 | 2026-03-15] [--comm-key N] [--dry-run]
 
 The device must already exist and be enabled under ZK Device on the site (its serial number is
 read from the device).
@@ -30,6 +30,16 @@ def read_device(ip, comm_key):
 	finally:
 		conn.disconnect()
 	return serial, records
+
+
+def since_date(value):
+	"""argparse type for --since: a year (2026), a month (2026-03) or a day (2026-03-15)."""
+	for fmt in ("%Y-%m-%d", "%Y-%m", "%Y"):
+		try:
+			return datetime.strptime(value, fmt)
+		except ValueError:
+			pass
+	raise argparse.ArgumentTypeError(f"expected YYYY, YYYY-MM or YYYY-MM-DD, got {value!r}")
 
 
 def attlog_lines(records):
@@ -57,13 +67,15 @@ def main():
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("device_ip")
 	parser.add_argument("site_url")
-	parser.add_argument("--since", help="Only punches on or after this date (YYYY-MM-DD)")
+	parser.add_argument(
+		"--since", type=since_date, help="Only punches on or after this year or date (YYYY, YYYY-MM or YYYY-MM-DD)"
+	)
 	parser.add_argument("--comm-key", type=int, default=0, help="Device Comm Key (default 0)")
 	parser.add_argument("--dry-run", action="store_true", help="Read and summarise, do not post")
 	args = parser.parse_args()
 
 	serial, records = read_device(args.device_ip, args.comm_key)
-	since = datetime.strptime(args.since, "%Y-%m-%d") if args.since else None
+	since = args.since
 	records = sorted((r for r in records if not since or r.timestamp >= since), key=lambda r: r.timestamp)
 	if not records:
 		print(f"Device {serial}: no punches to send")

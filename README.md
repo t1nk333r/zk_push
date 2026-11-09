@@ -181,8 +181,11 @@ The machine needs outbound access to the site; nothing has to reach the device f
 
 ```bash
 pip install pyzk
-python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234
+python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026
 ```
+
+`--since` (a year, month or day: `2026`, `2026-03`, `2026-03-15`) means punches before it are never
+sent, on any run; leave it out to send the device's whole log once.
 
 Ready-made packages: `make -C deploy/pull-agent pkg` builds `dist/zk-pull-agent-<version>-amd64.tar.gz`
 (PC/server), `-arm64.tar.gz` (Raspberry Pi) — Docker image + `compose.yaml` + `.env.example` — and
@@ -203,7 +206,7 @@ Description=ZK Push pull agent
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234
+ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026
 Restart=always
 User=nobody
 WorkingDirectory=/opt/zk_push/tools
@@ -243,7 +246,7 @@ ignored, so it is safe to re-run. The ZK Device must exist and be enabled on the
 ```bash
 pip install pyzk
 python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --dry-run
-python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --since 2026-01-01
+python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --since 2026
 ```
 
 If the device has a Comm Key, add `--comm-key <n>`.

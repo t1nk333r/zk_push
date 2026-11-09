@@ -6,10 +6,11 @@ exactly as a push device would. Everything on the site (de-duplication, checkins
 works the same; device commands (Reboot, Request Info, ...) do not, since the device never polls.
 
 Usage (requires: pip install pyzk):
-  python pull_from_device.py <device_ip> <site_url> [--interval 120] [--comm-key N] [--state FILE] [--once]
+  python pull_from_device.py <device_ip> <site_url> [--since 2026] [--interval 120] [--comm-key N] [--state FILE] [--once]
 
 The ZK Device must exist and be enabled on the site. On the first run every punch on the device is
-sent (set "Ignore Punches Before" on the ZK Device first); after that only new ones. --state keeps
+sent, or only those from --since on (a year, month or day, e.g. --since 2026); after that only new
+ones. Punches before --since are never sent, on any run. --state keeps
 the last punch time and the punches sent in the day before it, so a punch stamped in the same
 second, or after the device clock was moved back by less than a day, is still sent. The script reads
 the device's whole log on every run, which takes longer on devices holding a large log.
@@ -24,7 +25,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backfill_from_device import CHUNK, attlog_lines, post, read_device
+from backfill_from_device import CHUNK, attlog_lines, post, read_device, since_date
 
 OVERLAP = timedelta(days=1)
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -79,7 +80,7 @@ def sync(args, state_path) -> bool:
 		return False
 
 	last, sent = load_state(state_path)
-	since = last - OVERLAP if last else None
+	since = max(filter(None, (last - OVERLAP if last else None, args.since)), default=None)
 	# Punches at or before the last sent time are still new if they were not sent: a punch in
 	# the same second, or the device clock moved back (by less than OVERLAP).
 	window = sorted((r for r in records if not since or r.timestamp >= since), key=lambda r: r.timestamp)
@@ -103,6 +104,9 @@ def main():
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("device_ip")
 	parser.add_argument("site_url")
+	parser.add_argument(
+		"--since", type=since_date, help="Never send punches before this year or date (YYYY, YYYY-MM or YYYY-MM-DD)"
+	)
 	parser.add_argument("--interval", type=int, default=120, help="Seconds between pulls (default 120)")
 	parser.add_argument("--comm-key", type=int, default=0, help="Device Comm Key (default 0)")
 	parser.add_argument("--state", help="State file (default: zk_pull_<device_ip>.json next to this script)")
