@@ -17,6 +17,9 @@ using namespace zk;
 
 static constexpr size_t BODY_MAX = 8192;  // one POST
 static constexpr size_t READ_RECORDS = 100;
+// How far back to look for the last sent record when it is no longer at its index (a full log
+// that deletes its oldest records shifts everything down).
+static constexpr uint32_t SCAN_BACK = 1000;
 
 namespace {
 
@@ -34,13 +37,13 @@ struct Progress {
 		p.end();
 	}
 
-	void save() const {
+	bool save() const {
 		Preferences p;
-		p.begin("zkpull", false);
-		p.putUInt("next", next);
-		p.putUInt("fp_time", fp_time);
-		p.putString("fp_pin", fp_pin);
+		if (!p.begin("zkpull", false)) return false;
+		const bool ok = p.putUInt("next", next) && p.putUInt("fp_time", fp_time) &&
+			p.putString("fp_pin", fp_pin) == strlen(fp_pin);
 		p.end();
+		return ok;
 	}
 
 	void set(uint32_t index_after, const Record& r) {
@@ -63,22 +66,57 @@ struct Batch {
 }  // namespace
 
 static Batch batch;
+static bool site_unreachable;  // a request to the site failed below HTTP (DNS, TCP, TLS, timeout)
 static uint8_t chunk[READ_RECORDS * RECORD_SIZE];
 
 static bool flush(const char* serial, Progress& saved) {
 	if (batch.len) {
 		const int status = site_post_attlog(serial, batch.body, batch.len);
 		if (status != 200) {
-			Serial.printf("sync: upload rejected (HTTP %d), retrying next run\n", status);
+			if (status < 0) site_unreachable = true;
+			Serial.printf("sync: upload rejected (%d), retrying next run\n", status);
 			return false;
 		}
 		Serial.printf("sync: sent %u punch(es)\n", unsigned(batch.lines));
 	}
 	if (batch.pending.next != saved.next) {
 		saved = batch.pending;
-		saved.save();
+		if (!saved.save()) {
+			// Sent but not remembered: the next run sends these again (the site ignores them).
+			Serial.println("sync: could not save progress to flash");
+			return false;
+		}
 	}
 	batch.len = batch.lines = 0;
+	return true;
+}
+
+// Finds the last sent record: normally at saved.next - 1; if the device dropped old records it has
+// moved down, so look back up to SCAN_BACK records. Otherwise start again from record 0.
+static bool locate(ZkDevice& dev, Progress& saved, uint32_t records) {
+	uint32_t top = min(saved.next, records);  // search records [bottom, top)
+	const uint32_t bottom = top > SCAN_BACK ? top - SCAN_BACK : 0;
+	while (top > bottom) {
+		const uint32_t n = min<uint32_t>(READ_RECORDS, top - bottom);
+		if (!dev.read_records(top - n, n, chunk)) return false;
+		for (uint32_t k = n; k-- > 0;) {
+			Record r;
+			parse_record(chunk + k * RECORD_SIZE, r);  // compare even an empty pin: it was stored that way
+			if (saved.matches(r)) {
+				const uint32_t found = top - n + k + 1;
+				if (found != saved.next) {
+					Serial.printf("sync: the device dropped %u old record(s)\n", unsigned(saved.next - found));
+					saved.next = found;
+					if (!saved.save()) Serial.println("sync: could not save progress to flash");
+				}
+				return true;
+			}
+		}
+		top -= n;
+	}
+	Serial.println("sync: the device log was cleared or rewritten, starting from record 0");
+	saved = Progress();
+	if (!saved.save()) Serial.println("sync: could not save progress to flash");
 	return true;
 }
 
@@ -87,17 +125,7 @@ static bool sync_records(ZkDevice& dev, const char* serial, uint32_t records) {
 	saved.load();
 	const uint32_t since = encode_time(SINCE_YEAR, SINCE_MONTH, SINCE_DAY, 0, 0, 0);
 
-	if (saved.next > records) {
-		Serial.println("sync: the device log is shorter than before (cleared?), starting from record 0");
-		saved = Progress();
-	} else if (saved.next > 0) {
-		Record last;
-		if (!dev.read_records(saved.next - 1, 1, chunk)) return false;
-		if (!parse_record(chunk, last) || !saved.matches(last)) {
-			Serial.println("sync: the device log changed (rewritten?), starting from record 0");
-			saved = Progress();
-		}
-	}
+	if (saved.next > 0 && !locate(dev, saved, records)) return false;
 
 	batch.pending = saved;
 	batch.len = batch.lines = 0;
@@ -109,11 +137,13 @@ static bool sync_records(ZkDevice& dev, const char* serial, uint32_t records) {
 			const bool valid = parse_record(chunk + k * RECORD_SIZE, r);
 			if (valid && r.time >= since) {
 				char line[80];
-				const size_t len = format_attlog_line(r, line, sizeof line);
-				if (batch.len + len > BODY_MAX && !flush(serial, saved)) return false;
-				memcpy(batch.body + batch.len, line, len);
-				batch.len += len;
-				batch.lines++;
+				const size_t len = format_attlog_line(r, line, sizeof line);  // 0: impossible date
+				if (len) {
+					if (batch.len + len > BODY_MAX && !flush(serial, saved)) return false;
+					memcpy(batch.body + batch.len, line, len);
+					batch.len += len;
+					batch.lines++;
+				}
 			}
 			batch.pending.set(i + k + 1, r);  // skipped records are never sent, so they count as done
 		}
@@ -122,37 +152,45 @@ static bool sync_records(ZkDevice& dev, const char* serial, uint32_t records) {
 	return flush(serial, saved);
 }
 
-bool run_sync() {
+SyncResult run_sync() {
 	WiFiClient tcp;
 	ZkDevice dev(tcp);
 	char serial[33];
 	uint32_t records = 0, capacity = 0, buffer_size = 0;
+	site_unreachable = false;
 
 	bool ok = dev.connect(DEVICE_HOST, DEVICE_PORT, DEVICE_COMM_KEY) && dev.serial_number(serial, sizeof serial) &&
 		dev.record_count(records, capacity);
 	if (!ok) {
 		Serial.printf("sync: device: %s\n", dev.error());
 		dev.close();
-		return false;
+		return SyncResult::Failed;
 	}
 
 	const int status = site_heartbeat(serial);
 	if (status != 200) {
-		Serial.printf("sync: device %s: the site answered HTTP %d (is the ZK Device enabled?)\n", serial, status);
+		if (status < 0) site_unreachable = true;
+		Serial.printf("sync: device %s: the site answered %d (%s)\n", serial, status,
+			status < 0 ? "not reachable" : "is the ZK Device enabled?");
 		dev.close();
-		return false;
+		return site_unreachable ? SyncResult::SiteUnreachable : SyncResult::Failed;
 	}
 
 	ok = dev.prepare_log(buffer_size);
-	if (ok && buffer_size != 4 + records * RECORD_SIZE) {
-		Serial.printf("sync: unsupported log format (%u bytes for %u records)\n", unsigned(buffer_size),
-			unsigned(records));
-		ok = false;
-	} else if (ok) {
-		ok = sync_records(dev, serial, records);
-		if (!ok && *dev.error()) Serial.printf("sync: device: %s\n", dev.error());
+	if (ok) {
+		// The buffer is built after the count was read: a punch in between adds a record.
+		const uint32_t in_buffer = (buffer_size - 4) / RECORD_SIZE;
+		if (buffer_size < 4 || (buffer_size - 4) % RECORD_SIZE || in_buffer < records || in_buffer - records > 100) {
+			Serial.printf("sync: unsupported log format (%u bytes for %u records)\n", unsigned(buffer_size),
+				unsigned(records));
+			ok = false;
+		} else {
+			ok = sync_records(dev, serial, in_buffer);
+			if (!ok && *dev.error()) Serial.printf("sync: device: %s\n", dev.error());
+		}
 	}
 	dev.free_log();
 	dev.close();
-	return ok;
+	if (ok) return SyncResult::Ok;
+	return site_unreachable ? SyncResult::SiteUnreachable : SyncResult::Failed;
 }

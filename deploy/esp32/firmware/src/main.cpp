@@ -9,9 +9,10 @@
 #include "config.h"
 #include "sync.h"
 
-// Reboot if nothing has worked for this many runs in a row (stuck Wi-Fi stack, ...).
-static constexpr int MAX_FAILED_RUNS = 30;
-static int failed_runs = 0;
+// Reboot if the network has been unusable for this many runs in a row (stuck Wi-Fi stack, ...).
+// Other failures (device off, ZK Device not enabled) are not fixed by a reboot, so they don't count.
+static constexpr int MAX_NETWORK_FAILURES = 30;
+static int network_failures = 0;
 
 static bool ensure_wifi() {
 	if (WiFi.status() == WL_CONNECTED) return true;
@@ -34,10 +35,10 @@ void setup() {
 }
 
 void loop() {
-	const bool ok = ensure_wifi() && run_sync();
-	failed_runs = ok ? 0 : failed_runs + 1;
-	if (failed_runs >= MAX_FAILED_RUNS) {
-		Serial.println("too many failed runs, restarting");
+	const bool network_ok = ensure_wifi() && run_sync() != SyncResult::SiteUnreachable;
+	network_failures = network_ok ? 0 : network_failures + 1;
+	if (network_failures >= MAX_NETWORK_FAILURES) {
+		Serial.println("network unusable for too long, restarting");
 		delay(1000);
 		ESP.restart();
 	}

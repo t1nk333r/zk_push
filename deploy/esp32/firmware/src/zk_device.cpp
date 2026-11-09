@@ -15,14 +15,15 @@ bool ZkDevice::fail(const char* message) {
 
 bool ZkDevice::recv_exact(uint8_t* buf, size_t n) {
 	size_t got = 0;
-	const uint32_t start = millis();
+	uint32_t last_data = millis();
 	while (got < n) {
 		const int r = client_.read(buf + got, n - got);
 		if (r > 0) {
 			got += r;
+			last_data = millis();  // the timeout is for silence, not for the whole transfer
 		} else if (!client_.connected()) {
 			return fail("device closed the connection");
-		} else if (millis() - start > IO_TIMEOUT_MS) {
+		} else if (millis() - last_data > IO_TIMEOUT_MS) {
 			return fail("device did not answer in time");
 		} else {
 			delay(1);
@@ -42,7 +43,16 @@ bool ZkDevice::recv_packet(uint16_t& code, uint8_t* dst, size_t dst_size, size_t
 	reply_ = get_u16(head + 14);
 
 	got = packet_len - PACKET_HEADER_SIZE;
-	if (got > dst_size) return fail("device sent more data than expected");
+	if (got > dst_size) {
+		// Read and drop the payload so the next reply starts at a frame boundary.
+		uint8_t scratch[64];
+		for (size_t left = got; left > 0;) {
+			const size_t n = left < sizeof scratch ? left : sizeof scratch;
+			if (!recv_exact(scratch, n)) return false;
+			left -= n;
+		}
+		return fail("device sent more data than expected");
+	}
 	return recv_exact(dst, got);
 }
 
@@ -79,6 +89,7 @@ bool ZkDevice::connect(const char* host, uint16_t port, uint32_t key) {
 }
 
 bool ZkDevice::serial_number(char* out, size_t out_size) {
+	if (!out_size) return fail("no room for the serial number");
 	static const char query[] = "~SerialNumber";
 	uint16_t code;
 	if (!command(CMD_OPTIONS_RRQ, (const uint8_t*)query, sizeof query, code)) return false;

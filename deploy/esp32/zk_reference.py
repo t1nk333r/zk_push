@@ -4,6 +4,7 @@ Standard library only, no pyzk. Every step maps to a small fixed-size operation,
 can be a line-by-line port. Verified against an MB20-VL (ZMM510_TFT, Ver 6.60 May 8 2021).
 
   python zk_reference.py <device_ip> [--comm-key N] [--from-record K]
+  python zk_reference.py <device_ip> [--comm-key N] --sync <site_url> [--state FILE] [--since YYYY-MM-DD]
 
 Prints the device's serial number and record count, then the ATTLOG lines (the format the site's
 /iclock/cdata expects) for records K.. (default: the last 5). Read-only.
@@ -79,11 +80,15 @@ class Device:
 	def __init__(self, ip: str, key: int = 0, port: int = 4370, timeout: float = 10):
 		self.sock = socket.create_connection((ip, port), timeout=timeout)
 		self.session_id, self.reply_id = 0, USHRT_MAX - 1
-		code, payload = self.command(CMD_CONNECT)
-		if code == ACK_UNAUTH:
-			code, payload = self.command(CMD_AUTH, comm_key(key, self.session_id))
-		if code != ACK_OK:
-			raise ConnectionError(f"device refused the connection (code {code}; wrong Comm Key?)")
+		try:
+			code, payload = self.command(CMD_CONNECT)
+			if code == ACK_UNAUTH:
+				code, payload = self.command(CMD_AUTH, comm_key(key, self.session_id))
+			if code != ACK_OK:
+				raise ConnectionError(f"device refused the connection (code {code}; wrong Comm Key?)")
+		except BaseException:
+			self.sock.close()
+			raise
 
 	def _recv_exact(self, n: int) -> bytes:
 		buf = b""
@@ -118,37 +123,47 @@ class Device:
 		fields = struct.unpack("<20i", payload[:80])
 		return fields[8], fields[16]  # records, capacity
 
-	def read_records(self, first: int, count: int) -> list[bytes]:
-		"""Records first..first+count-1 (0-based, oldest first), RECORD_SIZE bytes each."""
+	def prepare_log(self) -> int:
+		"""Asks the device to build its log buffer (once per pull); returns 4 + records * RECORD_SIZE."""
 		code, payload = self.command(CMD_PREPARE_BUFFER, struct.pack("<bhii", 1, CMD_ATTLOG_RRQ, 0, 0))
 		if code != ACK_OK:
 			raise ConnectionError(f"device cannot prepare the log (code {code})")
+		return struct.unpack("<I", payload[1:5])[0]
+
+	def free_log(self):
+		self.command(CMD_FREE_DATA)
+
+	def read_records(self, first: int, count: int) -> list[bytes]:
+		"""Records first..first+count-1 (0-based, oldest first) of the prepared log, RECORD_SIZE bytes each."""
 		data = b""
-		while len(data) < count * RECORD_SIZE:  # the firmware would use a small fixed chunk
+		while len(data) < count * RECORD_SIZE:  # 4000-byte chunks, as the firmware reads
 			want = min(4000, count * RECORD_SIZE - len(data))
 			start = first * RECORD_SIZE + len(data)
 			if start == 0:  # start 0 means the u32 length header, not record 0
 				data += self._read_chunk(0, 4 + RECORD_SIZE)[4:]
 			else:
 				data += self._read_chunk(start, want)
-		self.command(CMD_FREE_DATA)
 		return [data[i : i + RECORD_SIZE] for i in range(0, len(data), RECORD_SIZE)]
 
 	def _read_chunk(self, start: int, size: int) -> bytes:
 		code, payload = self.command(CMD_READ_BUFFER, struct.pack("<ii", start, size))
 		if code == CMD_DATA:
-			return payload
-		if code != CMD_PREPARE_DATA:
+			data = payload
+		elif code == CMD_PREPARE_DATA:
+			data = b""
+			while True:
+				code, payload = self._recv_packet()
+				if code == CMD_DATA:
+					data += payload
+				elif code == ACK_OK:
+					break
+				else:
+					raise ConnectionError(f"unexpected packet {code} while reading the log")
+		else:
 			raise ConnectionError(f"device cannot read the log (code {code})")
-		data = b""
-		while True:
-			code, payload = self._recv_packet()
-			if code == CMD_DATA:
-				data += payload
-			elif code == ACK_OK:
-				return data
-			else:
-				raise ConnectionError(f"unexpected packet {code} while reading the log")
+		if len(data) != size:
+			raise ConnectionError(f"device returned {len(data)} of {size} bytes")
+		return data
 
 	def close(self):
 		try:
@@ -157,11 +172,16 @@ class Device:
 			self.sock.close()
 
 
-def attlog_line(record: bytes) -> str:
-	"""One record as the site's ATTLOG line: PIN, time, state, verify, workcode."""
+def attlog_line(record: bytes) -> str | None:
+	"""One record as the site's ATTLOG line: PIN, time, state, verify, workcode. None if its date does
+	not exist (a corrupt record: the time encoding allows day 31 in every month)."""
 	_uid, user_id, verify, timestamp, state = struct.unpack("<H24sBIB", record[:32])
 	pin = user_id.split(b"\0")[0].decode(errors="replace")
-	return f"{pin}\t{decode_time(timestamp):%Y-%m-%d %H:%M:%S}\t{state}\t{verify}\t0"
+	try:
+		when = decode_time(timestamp)
+	except ValueError:
+		return None
+	return f"{pin}\t{when:%Y-%m-%d %H:%M:%S}\t{state}\t{verify}\t0"
 
 
 def parse_record(record: bytes) -> tuple[str, int]:
@@ -173,60 +193,94 @@ def parse_record(record: bytes) -> tuple[str, int]:
 def sync(device: Device, site: str, state_path: str, since: datetime, body_max: int = 8192) -> None:
 	"""One pull, mirroring firmware/src/sync.cpp step by step (state in a JSON file instead of NVS)."""
 	import json
+	import os
 	import urllib.error
+	import urllib.parse
 	import urllib.request
 
 	serial = device.serial_number()
 	records, _capacity = device.record_count()
 
-	def post(query: str, body: bytes | None = None) -> int:
-		req = urllib.request.Request(f"{site.rstrip('/')}/iclock/cdata?SN={serial}&{query}", data=body)
+	def request(query: dict, body: bytes | None = None) -> int:
+		url = f"{site.rstrip('/')}/iclock/cdata?{urllib.parse.urlencode({'SN': serial, **query})}"
+		req = urllib.request.Request(url, data=body, headers={"Content-Type": "text/plain"})
 		try:
 			with urllib.request.urlopen(req, timeout=30) as resp:
 				return resp.status
 		except urllib.error.HTTPError as e:
 			return e.code
 
-	if post("options=all") != 200:
+	def save(state: dict):
+		tmp = state_path + ".tmp"
+		with open(tmp, "w") as f:
+			json.dump(state, f)
+		os.replace(tmp, state_path)
+
+	if request({"options": "all"}) != 200:
 		raise SystemExit("the site rejected the heartbeat (is the ZK Device enabled?)")
 	try:
-		saved = json.load(open(state_path))
+		with open(state_path) as f:
+			saved = json.load(f)
 	except FileNotFoundError:
 		saved = {"next": 0, "fp": None}
 
-	if saved["next"] > records:
-		print("log shorter than before, starting from record 0")
-		saved = {"next": 0, "fp": None}
-	elif saved["next"] > 0 and list(parse_record(device.read_records(saved["next"] - 1, 1)[0])) != saved["fp"]:
-		print("log changed, starting from record 0")
-		saved = {"next": 0, "fp": None}
+	buffer_size = device.prepare_log()
+	try:
+		in_buffer = (buffer_size - 4) // RECORD_SIZE  # a punch between count and prepare adds one
+		if (buffer_size - 4) % RECORD_SIZE or not 0 <= in_buffer - records <= 100:
+			raise SystemExit(f"unsupported log format ({buffer_size} bytes for {records} records)")
+		records = in_buffer
 
-	since_value = (((((since.year - 2000) * 12 + since.month - 1) * 31 + since.day - 1) * 24) * 60) * 60
-	body, lines, pending = b"", 0, dict(saved)
+		if saved["next"] > 0:  # locate(): the last sent record, possibly shifted down by up to 1000
+			top = min(saved["next"], records)
+			bottom = max(top - 1000, 0)
+			found = None
+			while top > bottom and found is None:
+				n = min(100, top - bottom)
+				for k, record in reversed(list(enumerate(device.read_records(top - n, n)))):
+					if list(parse_record(record)) == saved["fp"]:
+						found = top - n + k + 1
+						break
+				top -= n
+			if found is None:
+				print("log cleared or rewritten, starting from record 0")
+				saved = {"next": 0, "fp": None}
+				save(saved)
+			elif found != saved["next"]:
+				print(f"the device dropped {saved['next'] - found} old record(s)")
+				saved["next"] = found
+				save(saved)
 
-	def flush():
-		nonlocal body, lines, saved
-		if body:
-			status = post("table=ATTLOG", body)
-			if status != 200:
-				raise SystemExit(f"upload rejected (HTTP {status}), retrying next run")
-			print(f"sent {lines} punch(es)")
-		saved = dict(pending)
-		json.dump(saved, open(state_path, "w"))
-		body, lines = b"", 0
+		since_value = (((((since.year - 2000) * 12 + since.month - 1) * 31 + since.day - 1) * 24) * 60) * 60
+		body, lines, pending = b"", 0, dict(saved)
 
-	for index in range(saved["next"], records, 100):
-		for k, record in enumerate(device.read_records(index, min(100, records - index))):
-			pin, timestamp = parse_record(record)
-			if pin and timestamp >= since_value:
-				line = (attlog_line(record) + "\n").encode()
-				if len(body) + len(line) > body_max:
-					flush()
-				body += line
-				lines += 1
-			pending = {"next": index + k + 1, "fp": [pin, timestamp]}
-	flush()
-	print(f"done: next record {saved['next']} of {records}")
+		def flush():
+			nonlocal body, lines, saved
+			if body:
+				status = request({"table": "ATTLOG"}, body)
+				if status != 200:
+					raise SystemExit(f"upload rejected (HTTP {status}), retrying next run")
+				print(f"sent {lines} punch(es)")
+			if pending["next"] != saved["next"]:
+				saved = dict(pending)
+				save(saved)
+			body, lines = b"", 0
+
+		for index in range(saved["next"], records, 100):
+			for k, record in enumerate(device.read_records(index, min(100, records - index))):
+				pin, timestamp = parse_record(record)
+				line = attlog_line(record) if pin and timestamp >= since_value else None
+				if line:
+					encoded = (line + "\n").encode()
+					if len(body) + len(encoded) > body_max:
+						flush()
+					body += encoded
+					lines += 1
+				pending = {"next": index + k + 1, "fp": [pin, timestamp]}
+		flush()
+		print(f"done: next record {saved['next']} of {records}")
+	finally:
+		device.free_log()
 
 
 def main():
@@ -246,9 +300,13 @@ def main():
 			return
 		records, capacity = device.record_count()
 		print(f"serial {device.serial_number()}, {records} of {capacity} records")
-		first = args.from_record if args.from_record is not None else max(records - 5, 0)
-		for record in device.read_records(first, records - first):
-			print(attlog_line(record))
+		records = (device.prepare_log() - 4) // RECORD_SIZE
+		try:
+			first = args.from_record if args.from_record is not None else max(records - 5, 0)
+			for record in device.read_records(first, records - first):
+				print(attlog_line(record) or "(record with an impossible date)")
+		finally:
+			device.free_log()
 	finally:
 		device.close()
 

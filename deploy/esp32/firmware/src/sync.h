@@ -1,5 +1,10 @@
 // One pull: read the device's new records and post them to the site.
 #pragma once
 
-// Returns false if the pull did not complete; progress up to the last accepted upload is kept.
-bool run_sync();
+enum class SyncResult {
+	Ok,
+	Failed,           // device or site problem a restart would not fix; progress up to the last accepted upload is kept
+	SiteUnreachable,  // the site could not be reached at all (DNS, TCP, TLS, timeout)
+};
+
+SyncResult run_sync();

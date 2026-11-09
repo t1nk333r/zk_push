@@ -58,7 +58,8 @@ size_t build_frame(uint16_t command, uint16_t session_id, uint16_t reply_id, con
 
 bool parse_record(const uint8_t* raw, Record& record);
 
-// The site's ATTLOG line, "PIN\tYYYY-MM-DD HH:MM:SS\tstate\tverify\t0\n"; returns its length.
+// The site's ATTLOG line, "PIN\tYYYY-MM-DD HH:MM:SS\tstate\tverify\t0\n"; returns its length, or 0 if
+// out is too small or the record's date does not exist (e.g. 31 February from a corrupt record).
 size_t format_attlog_line(const Record& record, char* out, size_t out_size);
 
 }  // namespace zk

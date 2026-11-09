@@ -86,9 +86,16 @@ bool parse_record(const uint8_t* raw, Record& record) {
 	return record.pin[0] != '\0';
 }
 
+static bool valid_date(int y, int mo, int d) {
+	static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+	const bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+	return d <= days[mo - 1] + (mo == 2 && leap ? 1 : 0);
+}
+
 size_t format_attlog_line(const Record& r, char* out, size_t out_size) {
 	int y, mo, d, h, mi, s;
 	decode_time(r.time, y, mo, d, h, mi, s);
+	if (!valid_date(y, mo, d)) return 0;  // a corrupt record: the encoding allows day 31 in every month
 	const int n = snprintf(out, out_size, "%s\t%04d-%02d-%02d %02d:%02d:%02d\t%u\t%u\t0\n", r.pin, y, mo, d, h,
 		mi, s, r.state, r.verify);
 	return (n > 0 && size_t(n) < out_size) ? size_t(n) : 0;

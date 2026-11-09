@@ -10,8 +10,10 @@
 #define DEVICE_PORT 4370
 #define DEVICE_COMM_KEY 0
 
-// ERPNext site running zk_push. For https, paste the root CA certificate of the site
-// (e.g. ISRG Root X1 for Let's Encrypt) as a PEM string below; http needs no certificate.
+// ERPNext site running zk_push. Use https: over http the device serial number, its only credential,
+// travels in clear text. Paste the site's root CA certificate(s) as PEM below. Several certificates
+// can be concatenated (e.g. ISRG Root X1 and X2 for Let's Encrypt), so the board keeps working if
+// the site's certificate moves to another root; without OTA, a missing root means a USB reflash.
 #define SITE_URL "https://erp.example.com"
 #define SITE_ROOT_CA ""
 

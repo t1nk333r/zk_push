@@ -27,7 +27,7 @@ jobs:
         with:
           path: ~/.platformio
           key: pio-${{ hashFiles('deploy/esp32/firmware/platformio.ini') }}
-      - run: pip install platformio
+      - run: pip install platformio==6.2.0
       - name: Unit tests (native)
         run: pio test -e native
       - name: Build

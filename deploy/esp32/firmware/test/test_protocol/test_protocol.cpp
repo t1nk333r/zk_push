@@ -85,6 +85,62 @@ static void test_record_and_line() {
 	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, 10));  // too small: nothing
 }
 
+static void test_build_frame_with_payload_and_reply_wrap() {
+	uint8_t payload[8];
+	put_u32(payload, 40);
+	put_u32(payload + 4, 4000);
+	uint8_t frame[32];
+	const size_t n = build_frame(CMD_READ_BUFFER, 0x1234, 65535, payload, sizeof payload, frame, sizeof frame);
+	// checksum covers the payload; reply id 65535 becomes 1 in the packet
+	const uint8_t expected[] = {0x50, 0x50, 0x82, 0x7D, 0x10, 0x00, 0x00, 0x00, 0xE0, 0x05, 0x22, 0xD8, 0x34, 0x12,
+		0x01, 0x00, 0x28, 0x00, 0x00, 0x00, 0xA0, 0x0F, 0x00, 0x00};
+	TEST_ASSERT_EQUAL_size_t(sizeof expected, n);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, frame, sizeof expected);
+}
+
+static void test_comm_key_wraps() {
+	uint8_t out[4];
+	comm_key(0xFFFFFFFF, 0xFFFF, out);  // key + session carries past 2^32
+	const uint8_t k[] = {0x61, 0x7d, 0x32, 0x86};
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(k, out, 4);
+}
+
+static void test_record_fields_and_pins() {
+	uint8_t raw[RECORD_SIZE] = {0};
+	memcpy(raw + 2, "123456789012345678901234", 24);  // full 24-byte pin, no terminator
+	raw[26] = 15;                                   // verify
+	put_u32(raw + 27, encode_time(2026, 2, 28, 23, 59, 59));
+	raw[31] = 4;     // state
+	raw[32] = 0xAA;  // reserved: must not be read as the state
+	Record r;
+	TEST_ASSERT_TRUE(parse_record(raw, r));
+	TEST_ASSERT_EQUAL_STRING("123456789012345678901234", r.pin);
+	TEST_ASSERT_EQUAL_UINT8(4, r.state);
+	TEST_ASSERT_EQUAL_UINT8(15, r.verify);
+	char line[80];
+	format_attlog_line(r, line, sizeof line);
+	TEST_ASSERT_EQUAL_STRING("123456789012345678901234\t2026-02-28 23:59:59\t4\t15\t0\n", line);
+
+	uint8_t empty[RECORD_SIZE] = {0};
+	TEST_ASSERT_FALSE(parse_record(empty, r));
+}
+
+static void test_line_exact_fit_and_impossible_dates() {
+	Record r = {"7", 1, 0, encode_time(2026, 11, 9, 8, 0, 0)};
+	const char* expected = "7\t2026-11-09 08:00:00\t0\t1\t0\n";
+	char line[64];
+	const size_t len = strlen(expected);
+	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, len));  // no room for the terminator
+	TEST_ASSERT_EQUAL_size_t(len, format_attlog_line(r, line, len + 1));
+
+	r.time = encode_time(2026, 2, 31, 8, 0, 0);  // the encoding allows it; the calendar does not
+	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, sizeof line));
+	r.time = encode_time(2024, 2, 29, 8, 0, 0);  // leap day
+	TEST_ASSERT_NOT_EQUAL(0, format_attlog_line(r, line, sizeof line));
+	r.time = encode_time(2026, 4, 31, 8, 0, 0);
+	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, sizeof line));
+}
+
 int main() {
 	UNITY_BEGIN();
 	RUN_TEST(test_checksum);
@@ -92,5 +148,9 @@ int main() {
 	RUN_TEST(test_time);
 	RUN_TEST(test_build_frame);
 	RUN_TEST(test_record_and_line);
+	RUN_TEST(test_build_frame_with_payload_and_reply_wrap);
+	RUN_TEST(test_comm_key_wraps);
+	RUN_TEST(test_record_fields_and_pins);
+	RUN_TEST(test_line_exact_fit_and_impossible_dates);
 	return UNITY_END();
 }
