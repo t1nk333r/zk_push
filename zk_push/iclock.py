@@ -21,6 +21,8 @@ TOUCH_INTERVAL_SECONDS = 60
 MAX_PENDING_REGISTRATIONS = 20
 # Request log truncation.
 MAX_LOGGED_BODY = 64 * 1024
+# Unreadable ATTLOG lines kept in the Error Log per request (each line is at most 500 characters).
+MAX_LOGGED_INVALID_LINES = 1000
 
 DEVICE_FIELDS = [
 	"name",
@@ -115,10 +117,13 @@ def _receive(ex: _Exchange) -> str:
 
 	punches, invalid = protocol.parse_attlog(request.get_data(as_text=True))
 	if invalid:
-		# Every line is kept: they are acknowledged below, so the device will not send them again.
+		# They are acknowledged below, so the device will not send them again: keep them (up to a
+		# limit, so one huge unreadable batch cannot make the log insert, and the request, fail).
+		kept = invalid[:MAX_LOGGED_INVALID_LINES]
+		more = len(invalid) - len(kept)
 		frappe.log_error(
 			title=f"ZK Push: {len(invalid)} unreadable ATTLOG line(s) from {device.name}",
-			message="\n".join(invalid),
+			message="\n".join(kept) + (f"\n... and {more} more line(s) not shown" if more else ""),
 		)
 
 	received = len(punches)

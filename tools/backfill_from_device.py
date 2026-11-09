@@ -47,20 +47,41 @@ def attlog_lines(records):
 	return [f"{r.user_id}\t{r.timestamp:%Y-%m-%d %H:%M:%S}\t{r.punch}\t{r.status}\t0\n" for r in records]
 
 
-def post(site, serial, lines):
-	# No Stamp: the site would store it as the device's ATTLOGStamp and the device would resend its log.
-	query = urllib.parse.urlencode({"SN": serial, "table": "ATTLOG"})
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+	# urllib would follow a redirect of the POST as a GET without the punches; the site answers that
+	# GET with its handshake and HTTP 200, so the punches would look sent. Fail instead.
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def cdata_request(site, params, body=None, timeout=120):
+	"""GET or POST the site's /iclock/cdata. Returns (HTTP status, response text)."""
 	req = urllib.request.Request(
-		f"{site.rstrip('/')}/iclock/cdata?{query}",
-		data="".join(lines).encode(),
-		method="POST",
+		f"{site.rstrip('/')}/iclock/cdata?{urllib.parse.urlencode(params)}",
+		data=body,
+		method="POST" if body is not None else "GET",
 		headers={"Content-Type": "text/plain"},
 	)
 	try:
-		with urllib.request.urlopen(req, timeout=120) as resp:
-			return resp.status, resp.read().decode()
+		with _opener.open(req, timeout=timeout) as resp:
+			return resp.status, resp.read().decode(errors="replace")
 	except urllib.error.HTTPError as e:
+		if 300 <= e.code < 400:
+			return e.code, f"redirected to {e.headers.get('Location')}; use that address as the site URL"
 		return e.code, e.read().decode(errors="replace")
+
+
+def post(site, serial, lines):
+	# No Stamp: the site would store it as the device's ATTLOGStamp and the device would resend its log.
+	return cdata_request(site, {"SN": serial, "table": "ATTLOG"}, "".join(lines).encode())
+
+
+def accepted(status, text):
+	"""The site stored the upload: HTTP 200 and its 'OK: <n>' answer (anything else is not a cdata reply)."""
+	return status == 200 and text.startswith("OK")
 
 
 def main():
@@ -92,7 +113,7 @@ def main():
 	for start in range(0, len(lines), CHUNK):
 		status, text = post(args.site_url, serial, lines[start : start + CHUNK])
 		print(f"  punches {start + 1}-{start + len(lines[start:start + CHUNK])}: HTTP {status} {text.strip()[:80]}")
-		if status != 200:
+		if not accepted(status, text):
 			raise SystemExit("Stopped: the site rejected the upload (is the ZK Device enabled?)")
 	print("Done. The site turns them into checkins in the background (about a minute per 10,000).")
 
