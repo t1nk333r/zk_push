@@ -1,0 +1,36 @@
+# ESP32 pull agent firmware: protocol unit tests and a build with the example config.
+name: esp32-firmware
+
+on:
+  push:
+    branches: [main]
+    paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
+  pull_request:
+    paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/esp32/firmware
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('deploy/esp32/firmware/platformio.ini') }}
+      - run: pip install platformio==6.2.0
+      - name: Unit tests (native)
+        run: pio test -e native
+      - name: Build
+        run: |
+          cp include/config.example.h include/config.h
+          pio run -e esp32dev
