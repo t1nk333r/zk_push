@@ -1,0 +1,223 @@
+# Deployment workbook: zk_push v0.2.0 and the ESP32 pull agent
+
+Order: **test site first, production only after the test has run cleanly for a day.**
+
+| | Test | Production |
+|---|---|---|
+| Site | `https://test.nss.sa` | `https://nss.sa` |
+| zk_push today | installed (older version) | **not installed** |
+| What to do | update to v0.2.0, migrate | install v0.2.0 |
+
+Every step is done by you; nothing here runs automatically. Tick each box as you go.
+
+What v0.2.0 adds on the site: the **ZK Device User** doctype (names typed on the device, shown in
+**ZK Unmatched Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
+A `bench migrate` is required.
+
+---
+
+## Part A: once, on the laptop used for flashing
+
+- [ ] **A1. Serial port access.** Your user must be in the `uucp` group (Arch / Omarchy) to flash:
+  ```bash
+  sudo usermod -aG uucp $USER
+  ```
+  Log out and back in. Check with `groups`: it must list `uucp`.
+- [ ] **A2. PlatformIO.** `pio --version` should print `PlatformIO Core, version 6.2.0`. If not:
+  ```bash
+  uv tool install platformio==6.2.0
+  ```
+- [ ] **A3. Code at the release.**
+  ```bash
+  cd ~/Projects/zk_push
+  git fetch --tags && git checkout v0.2.0
+  ```
+- [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
+  and is git-ignored (never commit it). If it is missing:
+  ```bash
+  cp deploy/esp32/firmware/include/config.example.h deploy/esp32/firmware/include/config.h
+  ```
+  and fill in `WIFI_SSID`, `WIFI_PASSWORD`, `DEVICE_HOST`, `DEVICE_COMM_KEY`.
+- [ ] **A5. Root certificates.** Both sites use Let's Encrypt (chain `YE1 ← Root YE ← ISRG Root X2`).
+  `SITE_ROOT_CA` in `config.h` must contain **ISRG Root X1, ISRG Root X2, Root YE and Root YR**
+  (four `BEGIN CERTIFICATE` blocks):
+  ```bash
+  grep -c "BEGIN CERTIFICATE" deploy/esp32/firmware/include/config.h    # expect 4
+  ```
+  If not: X1 and X2 are in `/etc/ca-certificates/extracted/cadir/`, Root YE and YR at
+  https://letsencrypt.org/certificates/ (`root-ye.pem`, `root-yr.pem`). The same four work for
+  both sites.
+
+---
+
+## Part B: update zk_push on test.nss.sa
+
+Use the commands for the way the site is hosted. In the Docker commands, run them in the
+directory of the site's `compose.yaml`.
+
+- [ ] **B1. Backup.**
+  - Bench: `bench --site test.nss.sa backup --with-files`
+  - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
+- [ ] **B2. Get v0.2.0.**
+  - Bench:
+    ```bash
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.2.0 && cd ../..
+    ```
+  - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
+    ```bash
+    git clone --branch v0.2.0 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.2.0 .
+    ```
+    If the current image already contains an older zk_push, build from the image *without* it
+    (the one in `apps.json` / your base build), or add zk_push v0.2.0 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.2.0` as the image of **every** service and `docker compose up -d`.
+- [ ] **B3. Migrate and restart.**
+  - Bench: `bench --site test.nss.sa migrate && bench restart`
+  - Docker: `docker compose exec backend bench --site test.nss.sa migrate`, then
+    `docker compose restart backend queue-short queue-long scheduler`
+  A restart is required: the web server keeps running the old code until then.
+- [ ] **B4. Check the endpoint.**
+  ```bash
+  curl -s -w "  HTTP %{http_code}\n" https://test.nss.sa/iclock/cdata
+  ```
+  Expect `ERROR: invalid SN  HTTP 400` (zk_push answering). `404` = the app is not active on the site.
+- [ ] **B5. Check the desk.** Log in, search **ZK Device User**: the list opens (empty). Press
+  **Ctrl + Shift + R** once so the browser drops its cached forms.
+
+---
+
+## Part C: ESP32 → test.nss.sa
+
+- [ ] **C1. One agent per device.** The attendance device serves one connection at a time. Stop
+  anything else reading it: the Python pull agent (`docker compose down` in its folder, or its
+  systemd timer / Task Scheduler job) and the local trial:
+  ```bash
+  # local trial clean-up (if you did it)
+  sudo ufw delete allow from 192.168.100.0/24 to any port 8096 proto tcp
+  # and stop the socat window with Ctrl + C
+  ```
+- [ ] **C2. Point the firmware at the test site.** In `deploy/esp32/firmware/include/config.h`:
+  ```c
+  #define SITE_URL "https://test.nss.sa"
+  #define SINCE_YEAR 2026      // first punch date to send; older punches are never sent
+  #define SINCE_MONTH 1
+  #define SINCE_DAY 1
+  ```
+- [ ] **C3. Plug in the board** (USB data cable). Find its port:
+  ```bash
+  pio device list          # e.g. /dev/ttyUSB0 (CH340)
+  ```
+- [ ] **C4. Erase, then flash.** The board keeps its upload position in flash, and a normal flash
+  does not clear it: without the erase the new site would only get punches made from now on.
+  ```bash
+  cd ~/Projects/zk_push/deploy/esp32/firmware
+  pio run -e esp32dev -t erase  --upload-port /dev/ttyUSB0
+  pio run -e esp32dev -t upload --upload-port /dev/ttyUSB0
+  ```
+  Expect `[SUCCESS]` for both. If it hangs on `Connecting...`, hold the **BOOT** button until
+  writing starts.
+- [ ] **C5. Watch the first run.**
+  ```bash
+  pio device monitor -p /dev/ttyUSB0 -b 115200        # Ctrl + C to quit
+  ```
+  Press the board's **EN** (reset) button to see it from the start. Healthy:
+  ```
+  zk pull agent: device 192.168.100.56 -> https://test.nss.sa every 120s
+  wifi: connected, IP 192.168.100.x
+  sync: sent the list of 27 user(s)
+  sync: sent 100 punch(es)        (repeats during the first upload)
+  ```
+  A run with nothing new prints nothing. Problems:
+
+  | Line | Meaning / fix |
+  |---|---|
+  | `wifi: not connected` | wrong SSID/password, or a 5 GHz-only network |
+  | `cannot reach the device (TCP 4370)` | board not on the device's LAN, device off, or another agent is connected |
+  | `device did not answer in time` | usually another agent connected to the device (C1) |
+  | `device refused the connection` | wrong `DEVICE_COMM_KEY` |
+  | `the site answered 403 (is the ZK Device enabled?)` | expected on first contact: do C6 |
+  | `the site answered 404 (is zk_push installed ...)` | Part B not done on this site |
+  | `the site answered -1 (not reachable)` | no internet, or a TLS problem: re-check A5 |
+  | `HTTP 200 but not the site's OK` | wrong `SITE_URL` or a captive portal |
+
+- [ ] **C6. Enable the device on the site.** On first contact the site registers the device as
+  *disabled* (the board logs 403). In the desk: **ZK Device** → the new device (named after its
+  serial number) →
+  - **Ignore Punches Before**: the first date you want imported (or leave empty to take
+    everything from the firmware's `SINCE` date on),
+  - **Enabled** ✓ → Save.
+  The next run (within 2 minutes) uploads.
+- [ ] **C7. Verify.**
+  - ZK Device form: **Online**, *last seen* under 2 minutes ago, counts rising.
+  - **ZK Device User**: one row per device user, with names.
+  - **ZK Unmatched Users**: the *Name on Device* column is filled.
+  - **Live punch**: punch on the device; within 2 minutes it is in **ZK Punch** (Created if that
+    device user is mapped to an employee, else Unmatched).
+- [ ] **C8. Soak for a day.** Leave it running 24 hours, then check the device stays **Online**
+  and today's punches all arrived. Put the board where Wi-Fi is strong: weak signal shows as
+  long gaps in *last seen*.
+
+---
+
+## Part D: production, nss.sa
+
+- [ ] **D1. Backup.** As B1, with `--site nss.sa`.
+- [ ] **D2. Install the app** (first time on this site).
+  - Bench:
+    ```bash
+    cd ~/frappe-bench
+    bench get-app --branch v0.2.0 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (then: git checkout v0.2.0 in it)
+    bench --site nss.sa install-app zk_push
+    bench restart
+    ```
+  - Docker: the image from B2 (or rebuild for this server the same way), every service on it,
+    `docker compose up -d`, then
+    `docker compose exec backend bench --site nss.sa install-app zk_push` and restart as in B3.
+- [ ] **D3. Check the endpoint**: as B4 with `https://nss.sa` → `ERROR: invalid SN  HTTP 400`.
+- [ ] **D4. Map employees first.** With the user names from the test site as a guide (or
+  `tools/export_device_users.py`), set **Employee → Attendance Device ID** for each person. Done
+  before go-live, punches become checkins straight away instead of waiting as Unmatched (they are
+  still processed later if you map afterwards).
+- [ ] **D5. Point the board at production** (`config.h`):
+  ```c
+  #define SITE_URL "https://nss.sa"
+  #define SINCE_YEAR 2026      // go-live date: punches before it are never sent
+  #define SINCE_MONTH 12
+  #define SINCE_DAY 1
+  ```
+- [ ] **D6. Erase and flash**: exactly C3–C5. The erase matters here: it resets the upload position
+  that points at the end of what the test site received.
+- [ ] **D7. Enable on nss.sa**: as C6. Set **Ignore Punches Before** to the go-live date as a second
+  guard, and the **Log Type** mode you want.
+- [ ] **D8. Verify**: as C7, on nss.sa.
+- [ ] **D9. Close the test side.** On test.nss.sa untick **Enabled** on the ZK Device, so nothing
+  else can post as this device there.
+
+---
+
+## Part E: rollback
+
+- **Stop uploads at once:** untick **Enabled** on the ZK Device. The board gets 403 and keeps
+  retrying; nothing is lost (punches stay on the attendance device and are sent once re-enabled).
+- **Move the board back:** set the previous `SITE_URL`, erase + flash (C4). The site ignores
+  punches it already has.
+- **Undo the site update:** restore the B1/D1 backup
+  (`bench --site <site> restore <database.sql.gz> --with-public-files ... --with-private-files ...`),
+  then put the previous app version back and restart.
+
+## Part F: daily operation
+
+- New employee: enrol on the device, then set their **Attendance Device ID**, or use
+  **ZK Unmatched Users → Map** once they have punched (the board sends new user names within the
+  hour, at once if the user count changed).
+- Board unplugged or power cut: nothing is lost; it continues where it stopped.
+- Device log cleared or replaced: the board notices and resends from its `SINCE` date; the site
+  ignores what it already has.
+- Changing Wi-Fi, site or `SINCE`: edit `config.h`, flash (C4: erase only when moving to another
+  site).
+
+## Security note
+
+The device serial number is the only thing the site checks: anyone who knows it can post punches
+as this device. Keep it out of public places (tickets, chats, this repository) and keep the
+ZK Device disabled on any site the board does not use (D9).

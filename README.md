@@ -31,7 +31,8 @@ Tested on Frappe 15.126 / ERPNext 15.93 / HRMS 15.54 with a ZKTeco MB20-VL
     failed punches.
   - Punch form: plain-language explanation of the status, key pressed, verification method,
     *Retry* and *Map to Employee* buttons.
-  - **ZK Unmatched Users** report: one row per unmapped device user with a *Map* button.
+  - **ZK Unmatched Users** report: one row per unmapped device user, with the name typed on the
+    device and a *Map* button.
   - **ZK Request Log**: the raw request and response of every exchange (per-device *Debug
     Logging*, failures always logged, kept 7 days).
   - **ZK Device Command**: send `INFO`, `CHECK` (re-upload) or `REBOOT` to the device remotely.
@@ -60,6 +61,9 @@ on the ERPNext Employee ID, so device user IDs and ERPNext IDs can be completely
 | Error | HRMS rejected the checkin; the reason is shown on the punch |
 
 ## Install
+
+Step-by-step rollout to a test site, then production, including flashing the ESP32 agent:
+[deploy/DEPLOYMENT-WORKBOOK.md](deploy/DEPLOYMENT-WORKBOOK.md).
 
 ### Bench
 
@@ -223,6 +227,10 @@ On Windows, run it with `--once` from Task Scheduler every few minutes.
 
 Set **Employee → Attendance Device ID** to the person's user ID on the device, or use
 **ZK Unmatched Users → Map**, which does the same and processes their waiting punches.
+
+The report shows the **name typed on the device** next to each user ID, from **ZK Device User**
+(one row per device user). The pull agents (Python and ESP32) send the device's user list on their
+own; a push device sends a user when it is added or changed on the device.
 
 `tools/export_device_users.py` exports a device's users (ID, name, punch count, last punch) to
 CSV over the LAN to help with matching:
