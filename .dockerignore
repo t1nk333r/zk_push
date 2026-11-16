@@ -2,6 +2,9 @@
 **/__pycache__
 *.csv
 tools/zk_pull_*
-.env
+**/.env
 *.tar.gz
 dist/
+# Not used by either image; firmware/include/config.h holds the Wi-Fi password.
+deploy/esp32/
+**/config.h

@@ -12,6 +12,8 @@ constexpr uint16_t CMD_EXIT = 1001;
 constexpr uint16_t CMD_AUTH = 1102;
 constexpr uint16_t CMD_OPTIONS_RRQ = 11;
 constexpr uint16_t CMD_ATTLOG_RRQ = 13;
+constexpr uint16_t CMD_USERTEMP_RRQ = 9;
+constexpr uint16_t FCT_USER = 5;
 constexpr uint16_t CMD_GET_FREE_SIZES = 50;
 constexpr uint16_t CMD_PREPARE_BUFFER = 1503;
 constexpr uint16_t CMD_READ_BUFFER = 1504;
@@ -27,12 +29,24 @@ constexpr size_t FRAME_HEADER_SIZE = 8;   // magic1, magic2, u32 length
 constexpr size_t PACKET_HEADER_SIZE = 8;  // command, checksum, session, reply
 constexpr size_t RECORD_SIZE = 40;        // ATTLOG record on ZMM510-class firmware
 constexpr size_t PIN_MAX = 24;
+// User record: u16 uid, u8 privilege, char[8] password, char[24] name, u32 card, pad, char[7] group,
+// pad, char[24] user_id. In the user buffer, read offsets count the u32 header: user k is at
+// 4 + k * USER_RECORD_SIZE (unlike the attendance log).
+constexpr size_t USER_RECORD_SIZE = 72;
+constexpr size_t USER_NAME_MAX = 24;
 
 struct Record {
 	char pin[PIN_MAX + 1];
 	uint8_t verify;
 	uint8_t state;
 	uint32_t time;  // device-encoded time, see encode_time()
+};
+
+struct User {
+	char pin[PIN_MAX + 1];
+	char name[USER_NAME_MAX + 1];
+	uint8_t privilege;  // 14: device administrator
+	uint32_t card;
 };
 
 inline uint16_t get_u16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -59,7 +73,15 @@ size_t build_frame(uint16_t command, uint16_t session_id, uint16_t reply_id, con
 bool parse_record(const uint8_t* raw, Record& record);
 
 // The site's ATTLOG line, "PIN\tYYYY-MM-DD HH:MM:SS\tstate\tverify\t0\n"; returns its length, or 0 if
-// out is too small or the record's date does not exist (e.g. 31 February from a corrupt record).
+// out is too small, the record's date does not exist (e.g. 31 February from a corrupt record) or its
+// pin holds a control character.
 size_t format_attlog_line(const Record& record, char* out, size_t out_size);
+
+// A user record (USER_RECORD_SIZE bytes); false if it has no user id.
+bool parse_user(const uint8_t* raw, User& user);
+
+// The push protocol's OPERLOG line, "USER PIN=..\tName=..\tPri=..\tCard=..\n"; returns its length, or
+// 0 if out is too small or the pin or name holds a control character.
+size_t format_user_line(const User& user, char* out, size_t out_size);
 
 }  // namespace zk

@@ -6,6 +6,7 @@ Protocol summary (attendance push, "pushver 2.x" firmware such as ZMM510):
 
     GET  /iclock/cdata?SN=<sn>&options=all&pushver=...   -> handshake, reply with options
     POST /iclock/cdata?SN=<sn>&table=ATTLOG&Stamp=<n>     -> body: one punch per line
+    POST /iclock/cdata?SN=<sn>&table=OPERLOG              -> body: "USER PIN=..\tName=.." lines (others skipped)
     GET  /iclock/getrequest?SN=<sn>[&INFO=...]            -> poll; reply "OK" or "C:<id>:<command>"
     POST /iclock/devicecmd?SN=<sn>                        -> command results "ID=..&Return=..&CMD=..", reply "OK"
 
@@ -13,6 +14,7 @@ ATTLOG line (tab separated):
     PIN  YYYY-MM-DD HH:MM:SS  status  verify  workcode  reserved...
 """
 
+import html
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +27,8 @@ STAMP_RE = re.compile(r"[0-9]{1,20}")
 # ASCII only and small enough for an Int column (int() alone accepts any Unicode digit).
 INT_RE = re.compile(r"-?[0-9]{1,9}")
 MAX_WORKCODE = 140
+MAX_USER_NAME = 140
+PARTIAL_ENTITY_RE = re.compile(r"&[#\w]*$")
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 # Device bodies are split on CR/LF only; str.splitlines() also splits on \x0b, \x1c, \x85, ...
 LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
@@ -53,6 +57,16 @@ class Punch:
 
 def is_valid_sn(sn: str | None) -> bool:
 	return bool(sn) and bool(SN_RE.fullmatch(sn))
+
+
+def safe_text(value: str, limit: int | None = None) -> str:
+	"""Device-supplied text stored with db.set_value / bulk_insert, which skip Frappe's sanitizer.
+	Read-only Data and Small Text fields are shown as HTML, so escape it; then cut to `limit`
+	characters without leaving half an entity (every "&" is escaped, so a trailing "&..." is one)."""
+	text = html.escape(value)
+	if limit is not None and len(text) > limit:
+		text = PARTIAL_ENTITY_RE.sub("", text[:limit])
+	return text
 
 
 def is_valid_stamp(stamp: str | None) -> bool:
@@ -99,10 +113,39 @@ def parse_attlog_line(line: str) -> Punch | None:
 			time=time,
 			status=_to_int(rest[0]) if len(rest) > 0 else None,
 			verify=_to_int(rest[1]) if len(rest) > 1 else None,
-			workcode=rest[2][:MAX_WORKCODE] if len(rest) > 2 else "",
-			raw=raw[:500],
+			workcode=safe_text(rest[2], MAX_WORKCODE) if len(rest) > 2 else "",
+			raw=safe_text(raw[:500]),
 		)
 	return None
+
+
+@dataclass(frozen=True)
+class DeviceUser:
+	pin: str
+	name: str
+	is_admin: bool
+	card: str
+
+
+def parse_operlog_users(body: str) -> list[DeviceUser]:
+	"""The USER lines of an OPERLOG POST body ("USER PIN=1\\tName=Esra\\tPri=14\\tCard=..."); a push
+	device sends them when users change, the pull agents send the whole list. Other lines (OPLOG,
+	FP, ...) are skipped. A pin listed twice keeps its last line."""
+	users = {}
+	for line in LINE_SPLIT_RE.split(body or ""):
+		if not line.startswith("USER "):
+			continue
+		fields = dict(part.split("=", 1) for part in line[5:].split("\t") if "=" in part)
+		pin = fields.get("PIN", "").strip()
+		if not PIN_RE.fullmatch(pin):
+			continue
+		users[pin] = DeviceUser(
+			pin=pin,
+			name=safe_text(fields.get("Name", "").strip(), MAX_USER_NAME),
+			is_admin=fields.get("Pri", "").strip() == "14",  # 14: device administrator, 0: user
+			card=safe_text(fields.get("Card", "").strip(), MAX_USER_NAME),
+		)
+	return list(users.values())
 
 
 def parse_attlog(body: str) -> tuple[list[Punch], list[str]]:

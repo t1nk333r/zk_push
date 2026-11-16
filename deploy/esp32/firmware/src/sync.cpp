@@ -71,7 +71,7 @@ static uint8_t chunk[READ_RECORDS * RECORD_SIZE];
 
 static bool flush(const char* serial, Progress& saved) {
 	if (batch.len) {
-		const int status = site_post_attlog(serial, batch.body, batch.len);
+		const int status = site_post(serial, "ATTLOG", batch.body, batch.len);
 		if (status != 200) {
 			if (status < 0) site_unreachable = true;
 			Serial.printf("sync: upload rejected (%d), retrying next run\n", status);
@@ -152,6 +152,52 @@ static bool sync_records(ZkDevice& dev, const char* serial, uint32_t records) {
 	return flush(serial, saved);
 }
 
+// The device's users, as OPERLOG USER lines, so the site shows the names typed on the device next to
+// each user id. Sent on the first run after boot, when the user count changes, and otherwise every
+// USER_SYNC_RUNS runs (a rename keeps the count); the site only stores changes.
+static constexpr uint32_t USER_SYNC_RUNS = 30;
+static uint32_t synced_users = UINT32_MAX;  // user count last sent; UINT32_MAX: not yet since boot
+static uint32_t runs_since_users = 0;
+
+static bool post_users(const char* serial) {
+	if (!batch.len) return true;
+	const int status = site_post(serial, "OPERLOG", batch.body, batch.len);
+	if (status != 200) {
+		if (status < 0) site_unreachable = true;
+		Serial.printf("sync: user list rejected (%d)\n", status);
+		return false;
+	}
+	batch.len = batch.lines = 0;
+	return true;
+}
+
+static bool sync_users(ZkDevice& dev, const char* serial, uint32_t users) {
+	uint32_t size = 0;
+	if (!dev.prepare_users(size)) return false;
+	bool ok = size >= 4 && (size - 4) % USER_RECORD_SIZE == 0 && (size - 4) / USER_RECORD_SIZE == users;
+	if (!ok) Serial.printf("sync: unsupported user list (%u bytes for %u users)\n", unsigned(size), unsigned(users));
+	batch.len = batch.lines = 0;
+	constexpr uint32_t per_read = sizeof chunk / USER_RECORD_SIZE;
+	for (uint32_t i = 0; ok && i < users; i += per_read) {
+		const uint32_t n = min(per_read, users - i);
+		ok = dev.read_bytes(4 + i * USER_RECORD_SIZE, n * USER_RECORD_SIZE, chunk);
+		for (uint32_t k = 0; ok && k < n; k++) {
+			User u;
+			char line[128];
+			const size_t len = parse_user(chunk + k * USER_RECORD_SIZE, u) ? format_user_line(u, line, sizeof line) : 0;
+			if (!len) continue;
+			if (batch.len + len > BODY_MAX && !(ok = post_users(serial))) break;  // the batch is still full
+			memcpy(batch.body + batch.len, line, len);
+			batch.len += len;
+			batch.lines++;
+		}
+	}
+	ok = ok && post_users(serial);
+	dev.free_log();
+	if (ok) Serial.printf("sync: sent the list of %u user(s)\n", unsigned(users));
+	return ok;
+}
+
 SyncResult run_sync() {
 	WiFiClient tcp;
 	ZkDevice dev(tcp);
@@ -163,17 +209,36 @@ SyncResult run_sync() {
 		dev.record_count(records, capacity);
 	if (!ok) {
 		Serial.printf("sync: device: %s\n", dev.error());
+		const bool unreachable = dev.unreachable();
 		dev.close();
-		return SyncResult::Failed;
+		return unreachable ? SyncResult::DeviceUnreachable : SyncResult::Failed;
 	}
 
 	const int status = site_heartbeat(serial);
 	if (status != 200) {
 		if (status < 0) site_unreachable = true;
-		Serial.printf("sync: device %s: the site answered %d (%s)\n", serial, status,
-			status < 0 ? "not reachable" : "is the ZK Device enabled?");
+		const char* hint = "site error";
+		if (status < 0) hint = "not reachable";
+		else if (status == 403) hint = "is the ZK Device enabled?";
+		else if (status == 404) hint = "is zk_push installed at SITE_URL?";
+		else if (status >= 300 && status < 400) hint = "redirected: put the final https:// address in SITE_URL";
+		else if (status == 400) hint = "the site rejected the serial number";
+		Serial.printf("sync: device %s: the site answered %d (%s)\n", serial, status, hint);
 		dev.close();
 		return site_unreachable ? SyncResult::SiteUnreachable : SyncResult::Failed;
+	}
+	const uint32_t users = dev.user_count();
+	if (users != synced_users || ++runs_since_users >= USER_SYNC_RUNS) {
+		if (users == 0 || sync_users(dev, serial, users)) {
+			synced_users = users;
+			runs_since_users = 0;
+		} else if (*dev.error()) {
+			Serial.printf("sync: users: %s\n", dev.error());  // punches are still sent below
+		}
+	}
+	if (records == 0) {  // nothing to read (a new or cleared log); the device may not prepare an empty buffer
+		dev.close();
+		return SyncResult::Ok;
 	}
 
 	ok = dev.prepare_log(buffer_size);

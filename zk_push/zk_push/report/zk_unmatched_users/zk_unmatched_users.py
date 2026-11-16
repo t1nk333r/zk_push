@@ -4,18 +4,20 @@ from frappe import _
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
-	conditions = ["status = 'Unmatched'"]
+	conditions = ["p.status = 'Unmatched'"]
 	if filters.device:
-		conditions.append("device = %(device)s")
+		conditions.append("p.device = %(device)s")
 	if filters.from_date:
-		conditions.append("punch_time >= %(from_date)s")
+		conditions.append("p.punch_time >= %(from_date)s")
 
 	data = frappe.db.sql(
 		f"""
-		select device, pin, count(*) as punches, min(punch_time) as first_punch, max(punch_time) as last_punch
-		from `tabZK Punch`
+		select p.device, p.pin, u.user_name, count(*) as punches,
+			min(p.punch_time) as first_punch, max(p.punch_time) as last_punch
+		from `tabZK Punch` p
+		left join `tabZK Device User` u on u.device = p.device and u.pin = p.pin
 		where {" and ".join(conditions)}
-		group by device, pin
+		group by p.device, p.pin, u.user_name
 		order by last_punch desc
 		""",
 		filters,
@@ -27,6 +29,7 @@ def execute(filters=None):
 	columns = [
 		{"fieldname": "device", "label": _("Device"), "fieldtype": "Link", "options": "ZK Device", "width": 160},
 		{"fieldname": "pin", "label": _("Device User ID"), "fieldtype": "Data", "width": 120},
+		{"fieldname": "user_name", "label": _("Name on Device"), "fieldtype": "Data", "width": 160},
 		{"fieldname": "punches", "label": _("Unmatched Punches"), "fieldtype": "Int", "width": 140},
 		{"fieldname": "first_punch", "label": _("First Punch"), "fieldtype": "Datetime", "width": 170},
 		{"fieldname": "last_punch", "label": _("Last Punch"), "fieldtype": "Datetime", "width": 170},

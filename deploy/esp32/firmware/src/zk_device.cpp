@@ -43,6 +43,14 @@ bool ZkDevice::recv_packet(uint16_t& code, uint8_t* dst, size_t dst_size, size_t
 	reply_ = get_u16(head + 14);
 
 	got = packet_len - PACKET_HEADER_SIZE;
+	if (got > dst_size && accept_inline_log_ && code == CMD_DATA && got <= INLINE_LOG_MAX) {
+		// The whole log, inline, too big for dst: keep it on the heap until free_log().
+		inline_buf_ = static_cast<uint8_t*>(malloc(got));
+		if (inline_buf_) {
+			inline_len_ = got;
+			return recv_exact(inline_buf_, got);
+		}
+	}
 	if (got > dst_size) {
 		// Read and drop the payload so the next reply starts at a frame boundary.
 		uint8_t scratch[64];
@@ -77,7 +85,8 @@ bool ZkDevice::command(uint16_t cmd, const uint8_t* payload, size_t len, uint16_
 bool ZkDevice::connect(const char* host, uint16_t port, uint32_t key) {
 	session_ = 0;
 	reply_ = 65534;
-	if (!client_.connect(host, port)) return fail("cannot reach the device (TCP 4370)");
+	unreachable_ = !client_.connect(host, port);
+	if (unreachable_) return fail("cannot reach the device (TCP 4370)");
 	uint16_t code;
 	if (!command(CMD_CONNECT, nullptr, 0, code)) return false;
 	if (code == ACK_UNAUTH) {
@@ -94,7 +103,7 @@ bool ZkDevice::serial_number(char* out, size_t out_size) {
 	uint16_t code;
 	if (!command(CMD_OPTIONS_RRQ, (const uint8_t*)query, sizeof query, code)) return false;
 	if (code != ACK_OK) return fail("device did not return its serial number");
-	// Reply: "~SerialNumber=CO8E214361288\0"
+	// Reply: "~SerialNumber=ABCD123456789\0"
 	const char* text = (const char*)rx_;
 	const char* eq = (const char*)memchr(text, '=', rx_len_);
 	const char* value = eq ? eq + 1 : text;
@@ -111,18 +120,36 @@ bool ZkDevice::record_count(uint32_t& records, uint32_t& capacity) {
 	uint16_t code;
 	if (!command(CMD_GET_FREE_SIZES, nullptr, 0, code)) return false;
 	if (code != ACK_OK || rx_len_ < 80) return fail("device did not return its log size");
+	users_ = get_u32(rx_ + 4 * 4);
 	records = get_u32(rx_ + 8 * 4);
 	capacity = get_u32(rx_ + 16 * 4);
 	return true;
 }
 
-bool ZkDevice::prepare_log(uint32_t& buffer_size) {
-	uint8_t req[11];  // u8 1, i16 CMD_ATTLOG_RRQ, i32 0, i32 0
+bool ZkDevice::prepare_log(uint32_t& buffer_size) { return prepare_buffer(CMD_ATTLOG_RRQ, 0, buffer_size); }
+
+bool ZkDevice::prepare_users(uint32_t& buffer_size) { return prepare_buffer(CMD_USERTEMP_RRQ, FCT_USER, buffer_size); }
+
+bool ZkDevice::prepare_buffer(uint16_t what, uint32_t fct, uint32_t& buffer_size) {
+	uint8_t req[11];  // u8 1, i16 what, i32 fct, i32 0
 	memset(req, 0, sizeof req);
 	req[0] = 1;
-	put_u16(req + 1, CMD_ATTLOG_RRQ);
+	put_u16(req + 1, what);
+	put_u32(req + 3, fct);
 	uint16_t code;
-	if (!command(CMD_PREPARE_BUFFER, req, sizeof req, code)) return false;
+	release_inline_log();
+	accept_inline_log_ = true;
+	const bool sent = command(CMD_PREPARE_BUFFER, req, sizeof req, code);
+	accept_inline_log_ = false;
+	if (!sent) return false;
+	// A small log comes back at once, as the whole buffer: u32 length, then the records (pyzk
+	// read_with_buffer). It is in rx_ (no command touches it until free_log) or, if larger, in
+	// inline_buf_.
+	inline_log_ = code == CMD_DATA;
+	if (inline_log_) {
+		buffer_size = inline_buf_ ? inline_len_ : rx_len_;
+		return true;
+	}
 	if (code != ACK_OK || rx_len_ < 5) return fail("device cannot prepare its log");
 	buffer_size = get_u32(rx_ + 1);
 	return true;
@@ -154,7 +181,25 @@ bool ZkDevice::read_chunk(uint32_t start, size_t size, uint8_t* dst) {
 	return got == size || fail("device returned a short log chunk");
 }
 
+bool ZkDevice::read_bytes(uint32_t offset, size_t size, uint8_t* out) {
+	if (inline_log_) {
+		const uint8_t* log = inline_buf_ ? inline_buf_ : rx_;
+		const size_t log_len = inline_buf_ ? inline_len_ : rx_len_;
+		if (size_t(offset) + size > log_len) return fail("read outside the buffer");
+		memcpy(out, log + offset, size);
+		return true;
+	}
+	return read_chunk(offset, size, out);
+}
+
 bool ZkDevice::read_records(uint32_t first, uint32_t count, uint8_t* out) {
+	if (inline_log_) {
+		const uint8_t* log = inline_buf_ ? inline_buf_ : rx_;
+		const size_t log_len = inline_buf_ ? inline_len_ : rx_len_;
+		if (4 + (size_t(first) + count) * RECORD_SIZE > log_len) return fail("record outside the log");
+		memcpy(out, log + 4 + size_t(first) * RECORD_SIZE, size_t(count) * RECORD_SIZE);
+		return true;
+	}
 	uint32_t done = 0;
 	if (first == 0 && count > 0) {
 		// start 0 means the u32 length header, not record 0: read header + record 0, drop the header.
@@ -172,12 +217,21 @@ bool ZkDevice::read_records(uint32_t first, uint32_t count, uint8_t* out) {
 	return true;
 }
 
+void ZkDevice::release_inline_log() {
+	free(inline_buf_);
+	inline_buf_ = nullptr;
+	inline_len_ = 0;
+	inline_log_ = false;
+}
+
 void ZkDevice::free_log() {
+	release_inline_log();
 	uint16_t code;
 	command(CMD_FREE_DATA, nullptr, 0, code);
 }
 
 void ZkDevice::close() {
+	release_inline_log();
 	uint16_t code;
 	if (client_.connected()) command(CMD_EXIT, nullptr, 0, code);
 	client_.stop();

@@ -7,7 +7,7 @@ same job for devices without ADMS push.
 
 ## What was verified on the office device
 
-Device: MB20-VL, serial CO8E214361288, platform ZMM510_TFT, firmware Ver 6.60 (May 8 2021),
+Device: MB20-VL, platform ZMM510_TFT, firmware Ver 6.60 (May 8 2021),
 12,803 of 50,000 records, 27 users. Using `zk_reference.py` (standard library only, no pyzk):
 
 - Connect, Comm Key handshake, serial number and record count: ~0.9 s on Wi-Fi.
@@ -47,7 +47,8 @@ Every `INTERVAL_SECONDS` (see `firmware/README.md` for the code layout):
    punches it already has).
 4. Read the records after it in 4000-byte chunks, skip those before `SINCE` and corrupt dates,
    and POST up to 8 KB of ATTLOG lines at a time to `/iclock/cdata?SN=<serial>&table=ATTLOG`.
-5. After each HTTP 200, store the new index and fingerprint in NVS, so a large first upload is
+5. After each upload the site acknowledges (HTTP 200 with its `OK: <n>` answer; a 200 without it
+   counts as rejected), store the new index and fingerprint in NVS, so a large first upload is
    resumable after a power cut.
 
 Use an `https://` site: over `http://` the device serial number, which is all the site checks,

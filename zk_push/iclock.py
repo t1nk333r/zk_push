@@ -21,6 +21,10 @@ TOUCH_INTERVAL_SECONDS = 60
 MAX_PENDING_REGISTRATIONS = 20
 # Request log truncation.
 MAX_LOGGED_BODY = 64 * 1024
+# Device users stored per OPERLOG request (devices hold up to a few thousand).
+MAX_USERS_PER_REQUEST = 10000
+# Command results handled per devicecmd request (one per queued command is normal).
+MAX_COMMAND_RESULTS = 100
 # Unreadable ATTLOG lines kept in the Error Log per request (each line is at most 500 characters).
 MAX_LOGGED_INVALID_LINES = 1000
 
@@ -111,8 +115,13 @@ def _handle(ex: _Exchange):
 def _receive(ex: _Exchange) -> str:
 	device, request = ex.device, ex.request
 	table = (request.args.get("table") or "").upper()
+	if table == "OPERLOG":
+		# Only the USER lines matter: the names typed on the device, to make mapping easy.
+		users = protocol.parse_operlog_users(request.get_data(as_text=True))[:MAX_USERS_PER_REQUEST]
+		processing.store_users(device.name, users)
+		return "OK"
 	if table != "ATTLOG":
-		# OPERLOG, ATTPHOTO, ... are not needed; acknowledge so the device moves on.
+		# ATTPHOTO, ... are not needed; acknowledge so the device moves on.
 		return "OK"
 
 	punches, invalid = protocol.parse_attlog(request.get_data(as_text=True))
@@ -147,12 +156,12 @@ def _receive(ex: _Exchange) -> str:
 
 
 def _next_command(device) -> str | None:
-	command = frappe.get_all(
-		"ZK Device Command",
-		filters={"device": device.name, "status": "Pending"},
-		fields=["name", "command"],
-		order_by="creation asc",
-		limit=1,
+	# Locked until this request commits, so two overlapping polls never both send it (e.g. REBOOT twice).
+	command = frappe.db.sql(
+		"""select name, command from `tabZK Device Command`
+		where device = %s and status = 'Pending' order by creation asc limit 1 for update""",
+		device.name,
+		as_dict=True,
 	)
 	if not command:
 		return None
@@ -174,11 +183,19 @@ def _next_command(device) -> str | None:
 
 
 def _command_results(device, body: str):
-	for result in protocol.parse_devicecmd(body):
-		if not result["id"].isdigit():
-			continue
+	# One query for the device's commands named in the body (it could hold thousands of lines).
+	results = [r for r in protocol.parse_devicecmd(body) if r["id"].isdigit()][:MAX_COMMAND_RESULTS]
+	ids = {int(r["id"]) for r in results}
+	own = set(
+		frappe.get_all(
+			"ZK Device Command", filters={"device": device.name, "name": ("in", list(ids))}, pluck="name"
+		)
+		if ids
+		else ()
+	)
+	for result in results:
 		name = int(result["id"])
-		if not frappe.db.exists("ZK Device Command", {"name": name, "device": device.name}):
+		if name not in own:
 			continue
 		ok = result["return"] is not None and result["return"] >= 0
 		frappe.db.set_value(
@@ -200,6 +217,14 @@ def _get_or_register_device(sn: str):
 
 	pending = frappe.db.count("ZK Device", {"enabled": 0, "auto_registered": 1})
 	if pending >= MAX_PENDING_REGISTRATIONS:
+		# Otherwise a real new device is turned away without a trace (no device, no request log).
+		if not frappe.cache.get_value("zk_push:registration_limit_logged"):
+			frappe.cache.set_value("zk_push:registration_limit_logged", 1, expires_in_sec=3600)
+			frappe.log_error(
+				title="ZK Push: device registration limit reached",
+				message=f"Turned away unknown device {sn}: {pending} disabled, auto-registered ZK Devices are "
+				"waiting. Delete the ones you do not recognise so new devices can register.",
+			)
 		return None
 
 	try:
@@ -208,7 +233,9 @@ def _get_or_register_device(sn: str):
 		).insert(ignore_permissions=True)
 	except frappe.DuplicateEntryError:
 		pass  # registered concurrently by another request
-	return frappe.db.get_value("ZK Device", sn, DEVICE_FIELDS, as_dict=True)
+	# A locking read sees that other request's row; a plain read would use this transaction's
+	# snapshot, taken before it existed.
+	return frappe.db.get_value("ZK Device", sn, DEVICE_FIELDS, as_dict=True, for_update=True)
 
 
 def _touch(device, request):
@@ -220,17 +247,17 @@ def _touch(device, request):
 	):
 		updates["last_seen"] = now
 
-	ip = _client_ip(request)
+	ip = protocol.safe_text(_client_ip(request) or "")
 	if ip and ip != device.last_ip:
 		updates["last_ip"] = ip
 
-	pushver = request.args.get("pushver")
+	pushver = protocol.safe_text(request.args.get("pushver") or "", 140)
 	if pushver and pushver != device.push_version:
-		updates["push_version"] = pushver[:140]
+		updates["push_version"] = pushver
 
-	info = request.args.get("INFO")
+	info = protocol.safe_text(request.args.get("INFO") or "", 1000)
 	if info and info != device.device_info:
-		updates["device_info"] = info[:1000]
+		updates["device_info"] = info
 
 	if updates:
 		frappe.db.set_value("ZK Device", device.name, updates, update_modified=False)
@@ -259,7 +286,7 @@ def _log_request(ex: _Exchange):
 				"device": device.name,
 				"method": request.method,
 				"endpoint": ex.endpoint,
-				"query_string": request.query_string.decode(errors="replace")[:2000],
+				"query_string": protocol.safe_text(request.query_string.decode(errors="replace"), 2000),
 				"request_body": body[:MAX_LOGGED_BODY],
 				"body_size": len(body),
 				"punches": ex.punches,

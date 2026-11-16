@@ -41,9 +41,16 @@ int site_heartbeat(const char* serial) {
 	return with_http(cdata_url(serial, "options=all"), [](HTTPClient& http) { return http.GET(); });
 }
 
-int site_post_attlog(const char* serial, const char* body, size_t len) {
-	return with_http(cdata_url(serial, "table=ATTLOG"), [&](HTTPClient& http) {
+int site_post(const char* serial, const char* table, const char* body, size_t len) {
+	return with_http(cdata_url(serial, (String("table=") + table).c_str()), [&](HTTPClient& http) {
 		http.addHeader("Content-Type", "text/plain");
-		return http.POST((uint8_t*)body, len);
+		const int status = http.POST((uint8_t*)body, len);
+		// Only the site's "OK: <n>" means stored: a proxy, captive portal or wrong path can also answer
+		// 200, and progress saved after that would skip these punches for good.
+		if (status == 200 && !http.getString().startsWith("OK")) {
+			Serial.println("site: HTTP 200 but not the site's OK (wrong SITE_URL, proxy or captive portal?)");
+			return 0;
+		}
+		return status;
 	});
 }

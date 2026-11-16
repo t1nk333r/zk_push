@@ -18,7 +18,8 @@ Protocol, as used here (all integers little-endian):
             the reply's session_id is used for the rest of the connection
   sizes     CMD_GET_FREE_SIZES -> 80+ bytes of i32; [8] = records, [16] = record capacity
   log       CMD_PREPARE_BUFFER(u8 1, i16 CMD_ATTLOG_RRQ, i32 0, i32 0) -> payload[1:5] = buffer size;
-            the buffer is u32 data length + records of RECORD_SIZE bytes, oldest first
+            the buffer is u32 data length + records of RECORD_SIZE bytes, oldest first. A small
+            log may instead come back at once as CMD_DATA(the whole buffer); nothing to read then
   read      CMD_READ_BUFFER(i32 start, i32 size) -> CMD_DATA(bytes), or CMD_PREPARE_DATA then
             CMD_DATA packets then ACK_OK. start=0 reads from the length header (so record 0 is
             read as start=0, size=4+RECORD_SIZE, dropping 4 bytes); any other start is an offset
@@ -36,12 +37,14 @@ from datetime import datetime
 
 CMD_CONNECT, CMD_EXIT, CMD_AUTH = 1000, 1001, 1102
 CMD_OPTIONS_RRQ, CMD_GET_FREE_SIZES, CMD_ATTLOG_RRQ = 11, 50, 13
+CMD_USERTEMP_RRQ, FCT_USER = 9, 5
 CMD_PREPARE_BUFFER, CMD_READ_BUFFER, CMD_FREE_DATA = 1503, 1504, 1502
 CMD_PREPARE_DATA, CMD_DATA = 1500, 1501
 ACK_OK, ACK_UNAUTH = 2000, 2005
 FRAME_MAGIC = (0x5050, 0x7D82)
 USHRT_MAX = 65535
 RECORD_SIZE = 40
+USER_RECORD_SIZE = 72  # u16 uid, u8 privilege, char[8] password, char[24] name, u32 card, pad, char[7] group, pad, char[24] user_id
 
 
 def checksum(packet: bytes) -> int:
@@ -80,6 +83,8 @@ class Device:
 	def __init__(self, ip: str, key: int = 0, port: int = 4370, timeout: float = 10):
 		self.sock = socket.create_connection((ip, port), timeout=timeout)
 		self.session_id, self.reply_id = 0, USHRT_MAX - 1
+		self.inline_log = None  # set by prepare_log when the device returns a small log at once
+		self.users = 0  # set by record_count
 		try:
 			code, payload = self.command(CMD_CONNECT)
 			if code == ACK_UNAUTH:
@@ -115,26 +120,44 @@ class Device:
 		return self._recv_packet()
 
 	def serial_number(self) -> str:
-		_code, payload = self.command(CMD_OPTIONS_RRQ, b"~SerialNumber\0")
-		return payload.split(b"=", 1)[-1].split(b"\0")[0].decode()
+		code, payload = self.command(CMD_OPTIONS_RRQ, b"~SerialNumber\0")
+		if code != ACK_OK:
+			raise ConnectionError(f"device did not return its serial number (code {code})")
+		serial = payload.split(b"=", 1)[-1].split(b"\0")[0].decode()
+		if not serial:
+			raise ConnectionError("empty serial number")
+		return serial
 
 	def record_count(self) -> tuple[int, int]:
-		_code, payload = self.command(CMD_GET_FREE_SIZES)
+		code, payload = self.command(CMD_GET_FREE_SIZES)
+		if code != ACK_OK or len(payload) < 80:
+			raise ConnectionError(f"device did not return its log size (code {code})")
 		fields = struct.unpack("<20i", payload[:80])
+		self.users = fields[4]
 		return fields[8], fields[16]  # records, capacity
 
-	def prepare_log(self) -> int:
-		"""Asks the device to build its log buffer (once per pull); returns 4 + records * RECORD_SIZE."""
-		code, payload = self.command(CMD_PREPARE_BUFFER, struct.pack("<bhii", 1, CMD_ATTLOG_RRQ, 0, 0))
+	def prepare_log(self, command: int = CMD_ATTLOG_RRQ, fct: int = 0) -> int:
+		"""Asks the device to build its log buffer (once per pull); returns 4 + records * RECORD_SIZE.
+		With CMD_USERTEMP_RRQ, FCT_USER: the user list instead, USER_RECORD_SIZE bytes per user."""
+		code, payload = self.command(CMD_PREPARE_BUFFER, struct.pack("<bhii", 1, command, fct, 0))
+		self.inline_log = payload if code == CMD_DATA else None  # a small log comes back at once
+		if self.inline_log is not None:
+			return len(payload)
 		if code != ACK_OK:
 			raise ConnectionError(f"device cannot prepare the log (code {code})")
 		return struct.unpack("<I", payload[1:5])[0]
 
 	def free_log(self):
+		self.inline_log = None
 		self.command(CMD_FREE_DATA)
 
 	def read_records(self, first: int, count: int) -> list[bytes]:
 		"""Records first..first+count-1 (0-based, oldest first) of the prepared log, RECORD_SIZE bytes each."""
+		if self.inline_log is not None:
+			data = self.inline_log[4 + first * RECORD_SIZE : 4 + (first + count) * RECORD_SIZE]
+			if len(data) != count * RECORD_SIZE:
+				raise ConnectionError("record outside the log")
+			return [data[i : i + RECORD_SIZE] for i in range(0, len(data), RECORD_SIZE)]
 		data = b""
 		while len(data) < count * RECORD_SIZE:  # 4000-byte chunks, as the firmware reads
 			want = min(4000, count * RECORD_SIZE - len(data))
@@ -172,11 +195,46 @@ class Device:
 			self.sock.close()
 
 
+def user_line(record: bytes) -> str | None:
+	"""One user record as the push protocol's OPERLOG line, "USER PIN=..\tName=..". None for a user
+	without an id or with control characters in it (they would split the line)."""
+	_uid, privilege, _password, name, card, _group, user_id = struct.unpack("<HB8s24sIx7sx24s", record[:72])
+	pin = user_id.split(b"\0")[0].decode(errors="replace")
+	name = name.split(b"\0")[0].decode("utf-8", errors="replace")
+	if not pin or any(ord(c) < 0x20 or c == "\x7f" for c in pin + name):
+		return None
+	return f"USER PIN={pin}\tName={name}\tPri={privilege}\tCard={card or ''}"
+
+
+def read_users(device: "Device") -> list[str]:
+	"""The device's users as OPERLOG lines (call record_count() first: it reads the user count)."""
+	if not device.users:
+		return []
+	size = device.prepare_log(CMD_USERTEMP_RRQ, FCT_USER)
+	try:
+		if size < 4 or (size - 4) % USER_RECORD_SIZE or (size - 4) // USER_RECORD_SIZE != device.users:
+			raise ConnectionError(f"unsupported user list format ({size} bytes for {device.users} users)")
+		# Unlike the attendance log, read offsets here are plain byte offsets that count the u32
+		# header: user k is at 4 + k * USER_RECORD_SIZE (checked on the MB20-VL).
+		if device.inline_log is not None:
+			data = device.inline_log[4:size]
+		else:
+			data = b""
+			while len(data) < size - 4:
+				data += device._read_chunk(4 + len(data), min(4000, size - 4 - len(data)))
+		records = [data[i : i + USER_RECORD_SIZE] for i in range(0, len(data), USER_RECORD_SIZE)]
+	finally:
+		device.free_log()
+	return [line for line in map(user_line, records) if line]
+
+
 def attlog_line(record: bytes) -> str | None:
 	"""One record as the site's ATTLOG line: PIN, time, state, verify, workcode. None if its date does
 	not exist (a corrupt record: the time encoding allows day 31 in every month)."""
 	_uid, user_id, verify, timestamp, state = struct.unpack("<H24sBIB", record[:32])
 	pin = user_id.split(b"\0")[0].decode(errors="replace")
+	if any(ord(c) < 0x20 or c == "\x7f" for c in pin):  # would split the line into bogus fields
+		return None
 	try:
 		when = decode_time(timestamp)
 	except ValueError:
@@ -206,6 +264,8 @@ def sync(device: Device, site: str, state_path: str, since: datetime, body_max: 
 		req = urllib.request.Request(url, data=body, headers={"Content-Type": "text/plain"})
 		try:
 			with urllib.request.urlopen(req, timeout=30) as resp:
+				if body is not None and resp.status == 200 and not resp.read().startswith(b"OK"):
+					return 0  # not the site's "OK: <n>" (proxy, captive portal, wrong path)
 				return resp.status
 		except urllib.error.HTTPError as e:
 			return e.code
@@ -218,11 +278,17 @@ def sync(device: Device, site: str, state_path: str, since: datetime, body_max: 
 
 	if request({"options": "all"}) != 200:
 		raise SystemExit("the site rejected the heartbeat (is the ZK Device enabled?)")
+	users = read_users(device)  # the firmware also sends these on boot and when the count changes
+	if users and request({"table": "OPERLOG"}, "".join(line + "\n" for line in users).encode()) != 200:
+		print("the site rejected the user list")
 	try:
 		with open(state_path) as f:
 			saved = json.load(f)
 	except FileNotFoundError:
 		saved = {"next": 0, "fp": None}
+	if records == 0:
+		print("the device log is empty")
+		return
 
 	buffer_size = device.prepare_log()
 	try:
@@ -288,6 +354,7 @@ def main():
 	parser.add_argument("device_ip")
 	parser.add_argument("--comm-key", type=int, default=0)
 	parser.add_argument("--from-record", type=int, help="First record to print (default: the last 5)")
+	parser.add_argument("--users", action="store_true", help="Print the device's users (OPERLOG lines) instead")
 	parser.add_argument("--sync", metavar="SITE_URL", help="Run one firmware-style pull to this site instead")
 	parser.add_argument("--state", default="zk_reference_state.json", help="State file for --sync")
 	parser.add_argument("--since", default="2000-01-01", help="For --sync: never send punches before (YYYY-MM-DD)")
@@ -299,9 +366,17 @@ def main():
 			sync(device, args.sync, args.state, datetime.strptime(args.since, "%Y-%m-%d"))
 			return
 		records, capacity = device.record_count()
-		print(f"serial {device.serial_number()}, {records} of {capacity} records")
-		records = (device.prepare_log() - 4) // RECORD_SIZE
+		print(f"serial {device.serial_number()}, {records} of {capacity} records, {device.users} users")
+		if args.users:
+			print("\n".join(read_users(device)))
+			return
+		if records == 0:
+			return
+		buffer_size = device.prepare_log()
 		try:
+			if buffer_size < 4 or (buffer_size - 4) % RECORD_SIZE:
+				raise SystemExit(f"unsupported log format ({buffer_size} bytes for {records} records)")
+			records = (buffer_size - 4) // RECORD_SIZE
 			first = args.from_record if args.from_record is not None else max(records - 5, 0)
 			for record in device.read_records(first, records - first):
 				print(attlog_line(record) or "(record with an impossible date)")

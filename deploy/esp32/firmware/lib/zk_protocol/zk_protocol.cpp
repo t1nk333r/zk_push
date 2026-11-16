@@ -96,8 +96,37 @@ size_t format_attlog_line(const Record& r, char* out, size_t out_size) {
 	int y, mo, d, h, mi, s;
 	decode_time(r.time, y, mo, d, h, mi, s);
 	if (!valid_date(y, mo, d)) return 0;  // a corrupt record: the encoding allows day 31 in every month
+	// A tab or line break in a corrupt pin would split the line into bogus fields or punches.
+	for (const char* c = r.pin; *c; c++) {
+		if ((unsigned char)*c < 0x20 || *c == 0x7f) return 0;
+	}
 	const int n = snprintf(out, out_size, "%s\t%04d-%02d-%02d %02d:%02d:%02d\t%u\t%u\t0\n", r.pin, y, mo, d, h,
 		mi, s, r.state, r.verify);
+	return (n > 0 && size_t(n) < out_size) ? size_t(n) : 0;
+}
+
+static bool has_control_char(const char* s) {
+	for (; *s; s++) {
+		if ((unsigned char)*s < 0x20 || *s == 0x7f) return true;
+	}
+	return false;
+}
+
+bool parse_user(const uint8_t* raw, User& user) {
+	user.privilege = raw[2];
+	memcpy(user.name, raw + 11, USER_NAME_MAX);
+	user.name[USER_NAME_MAX] = '\0';
+	user.card = get_u32(raw + 35);
+	memcpy(user.pin, raw + 48, PIN_MAX);
+	user.pin[PIN_MAX] = '\0';
+	return user.pin[0] != '\0';
+}
+
+size_t format_user_line(const User& u, char* out, size_t out_size) {
+	if (has_control_char(u.pin) || has_control_char(u.name)) return 0;  // would split the line
+	char card[11] = "";
+	if (u.card) snprintf(card, sizeof card, "%lu", (unsigned long)u.card);
+	const int n = snprintf(out, out_size, "USER PIN=%s\tName=%s\tPri=%u\tCard=%s\n", u.pin, u.name, u.privilege, card);
 	return (n > 0 && size_t(n) < out_size) ? size_t(n) : 0;
 }
 

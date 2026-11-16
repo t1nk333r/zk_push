@@ -53,6 +53,34 @@ class TestProtocol(unittest.TestCase):
 		self.assertIsNone(punches[0].verify)
 		self.assertEqual(len(punches[0].workcode), protocol.MAX_WORKCODE)
 
+	def test_device_text_is_escaped(self):
+		punches, _ = protocol.parse_attlog("1\t2026-11-05 08:02:11\t0\t1\t<b>x</b>\n")
+		self.assertEqual(punches[0].workcode, "&lt;b&gt;x&lt;/b&gt;")
+		self.assertNotIn("<", punches[0].raw)
+
+	def test_parse_operlog_users(self):
+		body = (
+			"USER PIN=1\tName=4 Esra\tPri=14\tCard=10648000\r\n"
+			"OPLOG 4\t0\t2026-11-16 08:00:00\t0\t0\t0\t0\n"  # not a user line
+			"USER PIN=22\tName=<b>Abd</b>\tPri=0\tPasswd=\tCard=\tGrp=1\n"
+			"USER PIN=bad pin\tName=x\n"  # invalid pin
+			"USER PIN=22\tName=Abdurahm\tPri=0\n"  # repeated pin: last line wins
+		)
+		users = protocol.parse_operlog_users(body)
+		self.assertEqual(
+			[(u.pin, u.name, u.is_admin, u.card) for u in users],
+			[("1", "4 Esra", True, "10648000"), ("22", "Abdurahm", False, "")],
+		)
+		escaped = protocol.parse_operlog_users("USER PIN=5\tName=<b>A</b>\n")[0]
+		self.assertEqual(escaped.name, "&lt;b&gt;A&lt;/b&gt;")
+
+	def test_safe_text_never_cuts_an_entity(self):
+		self.assertEqual(protocol.safe_text("ab<", 4), "ab")  # "ab&lt;" cut at 4 would leave "ab&l"
+		self.assertEqual(protocol.safe_text("ab<", 6), "ab&lt;")
+		self.assertEqual(protocol.safe_text("a&b", 10), "a&amp;b")
+		punches, _ = protocol.parse_attlog(f"1\t2026-11-05 08:02:11\t0\t1\t{'w' * 138}<<\n")
+		self.assertEqual(punches[0].workcode, "w" * 138)
+
 	def test_trailing_newline_sn_and_pin_rejected(self):
 		self.assertFalse(protocol.is_valid_sn("ABCDEF\n"))
 		self.assertEqual(protocol.parse_attlog("١\t2026-11-05 08:02:11\n")[0], [])

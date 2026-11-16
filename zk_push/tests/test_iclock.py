@@ -1,6 +1,7 @@
 """Integration tests. Run on a bench with ERPNext + HRMS:  bench --site <site> run-tests --app zk_push"""
 
 from datetime import datetime
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 import frappe
@@ -31,6 +32,7 @@ class TestIclock(FrappeTestCase):
 		frappe.db.delete("ZK Punch", {"device": SN})
 		frappe.db.delete("ZK Request Log", {"device": SN})
 		frappe.db.delete("ZK Device Command", {"device": SN})
+		frappe.db.delete("ZK Device User", {"device": SN})
 		frappe.db.delete("ZK Device", {"name": SN})
 		self.employee = make_employee("zk_push_test@example.com", company="_Test Company")
 		frappe.db.set_value("Employee", self.employee, "attendance_device_id", "7001")
@@ -254,13 +256,63 @@ class TestIclock(FrappeTestCase):
 		self.assertIn("ATTLOGStamp=None", device_request("cdata", options="all")[1])
 
 	def test_custom_command_requires_system_manager(self):
+		# An HR Manager may queue commands (doctype permission), but only the safe ones.
 		device_request("cdata")
-		frappe.set_user("Guest")
+		user = "zk_push_hr@example.com"
+		if not frappe.db.exists("User", user):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": user,
+					"first_name": "ZK HR",
+					"send_welcome_email": 0,
+					"roles": [{"role": "HR Manager"}],
+				}
+			).insert(ignore_permissions=True)
+		frappe.set_user(user)
 		try:
-			with self.assertRaises(frappe.PermissionError):
+			frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "INFO"}).insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "System Managers"):
 				frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "CLEAR LOG"}).insert()
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_device_users_are_stored_and_shown_when_mapping(self):
+		from zk_push.zk_push.report.zk_unmatched_users.zk_unmatched_users import execute
+
+		device_request("cdata")
+		self.enable_device()
+		body = "USER PIN=8003\tName=Esra\tPri=14\tCard=123\nUSER PIN=8004\tName=Khalid\tPri=0\n"
+		self.assertEqual(device_request("cdata", "POST", body, table="OPERLOG"), (200, "OK"))
+		users = frappe.get_all("ZK Device User", {"device": SN}, ["name", "pin", "user_name", "is_admin"], order_by="pin")
+		self.assertEqual(
+			[(u.name, u.pin, u.user_name, u.is_admin) for u in users],
+			[(f"{SN}-8003", "8003", "Esra", 1), (f"{SN}-8004", "8004", "Khalid", 0)],
+		)
+
+		# A rename on the device updates the row; resending the same list changes nothing.
+		device_request("cdata", "POST", "USER PIN=8003\tName=Esra A\tPri=14\tCard=123\n", table="OPERLOG")
+		self.assertEqual(frappe.db.get_value("ZK Device User", f"{SN}-8003", "user_name"), "Esra A")
+		self.assertEqual(frappe.db.count("ZK Device User", {"device": SN}), 2)
+
+		device_request("cdata", "POST", "8003\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG")
+		processing.process_pending()
+		rows = [r for r in execute({"device": SN})[1] if r["pin"] == "8003"]
+		self.assertEqual(rows[0]["user_name"], "Esra A")
+
+	def test_unanswered_command_fails_after_a_day(self):
+		device_request("cdata")
+		self.enable_device()
+		name = frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "INFO"}).insert().name
+		self.assertEqual(device_request("getrequest")[1], f"C:{name}:INFO\n")
+		frappe.db.set_value("ZK Device Command", name, "sent_at", frappe.utils.add_days(frappe.utils.now_datetime(), -2))
+		processing.cleanup()
+		self.assertEqual(frappe.db.get_value("ZK Device Command", name, "status"), "Failed")
+
+	def test_device_text_is_escaped(self):
+		device_request("cdata")
+		device_request("getrequest", INFO="<img src=x onerror=alert(1)>")
+		self.assertNotIn("<img", frappe.db.get_value("ZK Device", SN, "device_info"))
 
 	def test_request_log_only_when_debugging_or_failed(self):
 		device_request("cdata")
@@ -274,6 +326,23 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual((log.method, log.endpoint, log.response_status, log.punches), ("POST", "cdata", 200, 1))
 		self.assertIn("7001", log.request_body)
 		self.assertEqual(log.response_body, "OK: 1")
+
+	def test_failed_request_answers_500_and_is_logged(self):
+		device_request("cdata")
+		self.enable_device()
+		frappe.db.commit()  # handle() rolls back on failure; the device must survive that
+		try:
+			with patch("zk_push.processing.store_punches", side_effect=Exception("boom")):
+				status, text = device_request("cdata", "POST", "7001\t2026-11-05 10:00:00\t0\t1\n", table="ATTLOG")
+			self.assertEqual((status, text), (500, "ERROR"))  # not OK: the device keeps the punch and retries
+			self.assertEqual(frappe.db.count("ZK Punch", {"device": SN}), 0)
+			log = frappe.get_last_doc("ZK Request Log", filters={"device": SN})
+			self.assertEqual(log.response_status, 500)
+			self.assertIn("boom", log.error)
+		finally:
+			frappe.db.delete("ZK Request Log", {"device": SN})
+			frappe.db.delete("ZK Device", {"name": SN})
+			frappe.db.commit()
 
 	def test_map_pin(self):
 		device_request("cdata")

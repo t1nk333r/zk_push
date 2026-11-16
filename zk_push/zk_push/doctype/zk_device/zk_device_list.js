@@ -11,7 +11,12 @@ frappe.listview_settings["ZK Device"] = {
 		}
 		const online =
 			doc.last_seen &&
-			moment().diff(frappe.datetime.str_to_obj(doc.last_seen), "minutes") < ZK_ONLINE_WINDOW_MINUTES;
+			// last_seen is in the system time zone, not the browser's: compare it with "now" in that zone,
+			// both read the same way (system_datetime() is a string; with true it is a Date, not a moment).
+			moment(frappe.datetime.system_datetime(), frappe.defaultDatetimeFormat).diff(
+				moment(doc.last_seen, frappe.defaultDatetimeFormat),
+				"minutes"
+			) < ZK_ONLINE_WINDOW_MINUTES;
 		return online ? [__("Online"), "green", "enabled,=,1"] : [__("Offline"), "red", "enabled,=,1"];
 	},
 };

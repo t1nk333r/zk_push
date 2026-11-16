@@ -12,8 +12,10 @@
 
 // ERPNext site running zk_push. Use https: over http the device serial number, its only credential,
 // travels in clear text. Paste the site's root CA certificate(s) as PEM below. Several certificates
-// can be concatenated (e.g. ISRG Root X1 and X2 for Let's Encrypt), so the board keeps working if
-// the site's certificate moves to another root; without OTA, a missing root means a USB reflash.
+// can be concatenated, so the board keeps working if the site's certificate moves to another root;
+// without OTA, a missing root means a USB reflash. For Let's Encrypt use ISRG Root X1 and X2 plus the
+// newer Root YE and Root YR (letsencrypt.org/certificates, "root-ye.pem" / "root-yr.pem"): chains
+// end at those once Let's Encrypt stops serving the cross-signs to X1/X2.
 #define SITE_URL "https://erp.example.com"
 #define SITE_ROOT_CA ""
 

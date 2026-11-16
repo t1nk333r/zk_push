@@ -23,13 +23,15 @@ CHUNK = 2000
 
 
 def read_device(ip, comm_key):
+	"""(serial number, attendance records, users) in one connection."""
 	conn = ZK(ip, port=4370, timeout=30, password=comm_key, ommit_ping=True).connect()
 	try:
 		serial = conn.get_serialnumber()
 		records = conn.get_attendance()
+		users = conn.get_users()
 	finally:
 		conn.disconnect()
-	return serial, records
+	return serial, records, users
 
 
 def since_date(value):
@@ -45,6 +47,24 @@ def since_date(value):
 def attlog_lines(records):
 	# ATTLOG line: PIN, time, state key (pyzk "punch"), verify type (pyzk "status"), workcode
 	return [f"{r.user_id}\t{r.timestamp:%Y-%m-%d %H:%M:%S}\t{r.punch}\t{r.status}\t0\n" for r in records]
+
+
+def user_lines(users):
+	# OPERLOG USER lines, as a push device sends them: the site keeps the names typed on the device
+	# so device user IDs are easy to map. Skips users whose id or name would split the line.
+	return [
+		f"USER PIN={u.user_id}\tName={u.name}\tPri={u.privilege}\tCard={u.card or ''}\n"
+		for u in users
+		if u.user_id and not any(ord(c) < 0x20 or c == "\x7f" for c in u.user_id + u.name)
+	]
+
+
+def post_users(site, serial, users):
+	"""Send the device's users to the site. Returns (HTTP status, response text)."""
+	lines = user_lines(users)
+	if not lines:
+		return 200, "OK"
+	return cdata_request(site, {"SN": serial, "table": "OPERLOG"}, "".join(lines).encode())
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -95,7 +115,10 @@ def main():
 	parser.add_argument("--dry-run", action="store_true", help="Read and summarise, do not post")
 	args = parser.parse_args()
 
-	serial, records = read_device(args.device_ip, args.comm_key)
+	serial, records, users = read_device(args.device_ip, args.comm_key)
+	if not args.dry_run:
+		status, text = post_users(args.site_url, serial, users)
+		print(f"Device {serial}: {len(users)} users: HTTP {status} {text.strip()[:80]}")
 	since = args.since
 	records = sorted((r for r in records if not since or r.timestamp >= since), key=lambda r: r.timestamp)
 	if not records:

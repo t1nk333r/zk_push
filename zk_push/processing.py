@@ -3,11 +3,14 @@
 import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
+from rq.timeouts import JobTimeoutException
 
 from zk_push import protocol
 
 JOB_ID = "zk_push:process_pending"
 BATCH_SIZE = 2000
+# Seconds; a full batch of checkins must fit (the short queue's default is 300).
+JOB_TIMEOUT = 1500
 RETRYABLE_STATUSES = ("Unmatched", "Error")
 REQUEST_LOG_RETENTION_DAYS = 7
 COMMAND_RETENTION_DAYS = 90
@@ -35,10 +38,42 @@ def store_punches(device: str, punches: list[protocol.Punch], branch: str | None
 	frappe.db.bulk_insert("ZK Punch", fields, values, ignore_duplicates=True)
 
 
+def store_users(device: str, users: list[protocol.DeviceUser]) -> int:
+	"""Create or update ZK Device User rows (one per device and pin); only changed rows are written,
+	since pull agents send the whole list on every run. Returns the number written."""
+	if not users:
+		return 0
+	existing = {
+		row.pin: row
+		for row in frappe.get_all(
+			"ZK Device User",
+			filters={"device": device, "pin": ("in", [u.pin for u in users])},
+			fields=["name", "pin", "user_name", "is_admin", "card"],
+		)
+	}
+	now = now_datetime()
+	written = 0
+	for user in users:
+		values = {"user_name": user.name, "is_admin": int(user.is_admin), "card": user.card}
+		row = existing.get(user.pin)
+		if row is None:
+			frappe.get_doc(
+				{"doctype": "ZK Device User", "device": device, "pin": user.pin, "last_synced": now, **values}
+			).insert(ignore_permissions=True)
+			written += 1
+			continue
+		current = {"user_name": row.user_name or "", "is_admin": row.is_admin or 0, "card": row.card or ""}
+		if current != values:
+			frappe.db.set_value("ZK Device User", row.name, {**values, "last_synced": now})
+			written += 1
+	return written
+
+
 def enqueue_processing():
 	frappe.enqueue(
 		"zk_push.processing.process_pending",
 		queue="short",
+		timeout=JOB_TIMEOUT,
 		job_id=JOB_ID,
 		deduplicate=True,
 		enqueue_after_commit=True,
@@ -60,7 +95,9 @@ def process_pending():
 
 	if len(names) == BATCH_SIZE and not frappe.flags.in_test:
 		# More waiting (e.g. the initial upload of the device's history).
-		frappe.enqueue("zk_push.processing.process_pending", queue="short", enqueue_after_commit=True)
+		frappe.enqueue(
+			"zk_push.processing.process_pending", queue="short", timeout=JOB_TIMEOUT, enqueue_after_commit=True
+		)
 
 
 def requeue(
@@ -113,7 +150,8 @@ def map_pin(device: str, pin: str, employee: str, overwrite: bool = False) -> in
 	waiting = frappe.db.count("ZK Punch", {"pin": pin, "status": ("in", RETRYABLE_STATUSES)})
 	if doc.attendance_device_id != pin:
 		doc.attendance_device_id = pin
-		doc.save()  # on_employee_update requeues this pin's punches
+		# api.map_pin already checked the role; a System Manager may lack Employee write permission.
+		doc.save(ignore_permissions=True)  # on_employee_update requeues this pin's punches
 	else:
 		requeue(pin=pin)
 	return waiting
@@ -126,7 +164,12 @@ def on_employee_update(doc, method=None):
 
 
 def cleanup():
-	"""Daily: drop old request logs and finished device commands."""
+	"""Daily: fail commands the device never answered, drop old request logs and finished commands."""
+	frappe.db.set_value(
+		"ZK Device Command",
+		{"status": "Sent", "sent_at": ("<", add_days(now_datetime(), -1))},
+		{"status": "Failed", "response": "No reply from the device within a day."},
+	)
 	frappe.db.delete(
 		"ZK Request Log", {"creation": ("<", add_days(now_datetime(), -REQUEST_LOG_RETENTION_DAYS))}
 	)
@@ -157,13 +200,18 @@ class _Context:
 		return self.devices[name]
 
 	def employees_for_pin(self, pin):
-		if pin not in self.employees:
-			self.employees[pin] = frappe.get_all(
-				"Employee",
-				filters={"attendance_device_id": pin},
-				fields=["name", "employee_name"],
-			)
-		return self.employees[pin]
+		if pin in self.employees:
+			return self.employees[pin]
+		employees = frappe.get_all(
+			"Employee",
+			filters={"attendance_device_id": pin},
+			fields=["name", "employee_name"],
+		)
+		# Not cached when nobody has the pin: it may be mapped while this job runs, and the
+		# requeue that follows only resets punches already marked Unmatched, not Pending ones.
+		if employees:
+			self.employees[pin] = employees
+		return employees
 
 
 def _process_one(name: str, context: _Context):
@@ -181,6 +229,10 @@ def _process_one(name: str, context: _Context):
 	frappe.db.savepoint("zk_punch")
 	try:
 		result = _evaluate(row[0], context)
+	except JobTimeoutException:
+		# The job's own timeout, not this punch's fault: leave it Pending for the next run.
+		frappe.db.rollback(save_point="zk_punch")
+		raise
 	except Exception as e:
 		frappe.db.rollback(save_point="zk_punch")
 		frappe.clear_messages()

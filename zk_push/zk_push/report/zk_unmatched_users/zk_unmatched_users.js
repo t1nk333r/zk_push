@@ -12,7 +12,9 @@ frappe.query_reports["ZK Unmatched Users"] = {
 		if (column.fieldname === "action" && data && data.pin) {
 			return `<button class="btn btn-xs btn-primary zk-map-pin" data-device="${frappe.utils.escape_html(
 				data.device
-			)}" data-pin="${frappe.utils.escape_html(data.pin)}">${__("Map")}</button>`;
+			)}" data-pin="${frappe.utils.escape_html(data.pin)}" data-name="${frappe.utils.escape_html(
+				data.user_name || ""
+			)}">${__("Map")}</button>`;
 		}
 		if (column.fieldname === "pin" && data && data.pin) {
 			const url = `/app/zk-punch?device=${encodeURIComponent(data.device)}&pin=${encodeURIComponent(data.pin)}`;
@@ -25,11 +27,21 @@ frappe.query_reports["ZK Unmatched Users"] = {
 		$(report.page.wrapper)
 			.off("click", ".zk-map-pin")
 			.on("click", ".zk-map-pin", (e) => {
-				const { device, pin } = e.currentTarget.dataset;
+				const { device, pin, name } = e.currentTarget.dataset;
 				const dialog = new frappe.ui.Dialog({
-					title: __("Map device user {0} to an employee", [pin]),
+					title: name
+						? __("Map device user {0} ({1}) to an employee", [pin, name])
+						: __("Map device user {0} to an employee", [pin]),
 					fields: [
-						{ fieldname: "employee", fieldtype: "Link", options: "Employee", label: __("Employee"), reqd: 1 },
+						{
+							fieldname: "employee",
+							fieldtype: "Link",
+							options: "Employee",
+							label: __("Employee"),
+							reqd: 1,
+							// The name typed on the device, usually part of the employee's name.
+							description: name ? __("Name on the device: {0}", [name]) : "",
+						},
 						{
 							fieldname: "overwrite",
 							fieldtype: "Check",

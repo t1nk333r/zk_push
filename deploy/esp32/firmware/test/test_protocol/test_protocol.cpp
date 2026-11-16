@@ -141,6 +141,43 @@ static void test_line_exact_fit_and_impossible_dates() {
 	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, sizeof line));
 }
 
+static void test_line_rejects_control_bytes_in_pin() {
+	Record r = {"7\t8", 1, 0, encode_time(2026, 11, 9, 8, 0, 0)};
+	char line[64];
+	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, sizeof line));
+	strcpy(r.pin, "7\n2026");
+	TEST_ASSERT_EQUAL_size_t(0, format_attlog_line(r, line, sizeof line));
+	strcpy(r.pin, "A-7_x");
+	TEST_ASSERT_NOT_EQUAL(0, format_attlog_line(r, line, sizeof line));
+}
+
+// User 1 on the office MB20-VL, as zk_reference.py --users printed it.
+static void test_user_record_and_line() {
+	uint8_t raw[USER_RECORD_SIZE] = {0};
+	put_u16(raw, 1);                // uid
+	raw[2] = 14;                    // privilege: administrator
+	memcpy(raw + 11, "4 Esra", 6);  // name
+	put_u32(raw + 35, 10648000);    // card
+	memcpy(raw + 48, "1", 1);       // user id
+	User u;
+	TEST_ASSERT_TRUE(parse_user(raw, u));
+	char line[128];
+	const char* expected = "USER PIN=1\tName=4 Esra\tPri=14\tCard=10648000\n";
+	TEST_ASSERT_EQUAL_size_t(strlen(expected), format_user_line(u, line, sizeof line));
+	TEST_ASSERT_EQUAL_STRING(expected, line);
+
+	u.card = 0;  // no card: empty, as the reference writes it
+	format_user_line(u, line, sizeof line);
+	TEST_ASSERT_EQUAL_STRING("USER PIN=1\tName=4 Esra\tPri=14\tCard=\n", line);
+
+	strcpy(u.name, "A\tB");  // a tab would add a bogus field
+	TEST_ASSERT_EQUAL_size_t(0, format_user_line(u, line, sizeof line));
+	TEST_ASSERT_EQUAL_size_t(0, format_user_line(u, line, 10));  // too small
+
+	memset(raw + 48, 0, PIN_MAX);  // no user id
+	TEST_ASSERT_FALSE(parse_user(raw, u));
+}
+
 int main() {
 	UNITY_BEGIN();
 	RUN_TEST(test_checksum);
@@ -152,5 +189,7 @@ int main() {
 	RUN_TEST(test_comm_key_wraps);
 	RUN_TEST(test_record_fields_and_pins);
 	RUN_TEST(test_line_exact_fit_and_impossible_dates);
+	RUN_TEST(test_line_rejects_control_bytes_in_pin);
+	RUN_TEST(test_user_record_and_line);
 	return UNITY_END();
 }

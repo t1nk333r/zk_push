@@ -12,7 +12,11 @@ The ZK Device must exist and be enabled on the site. On the first run every punc
 sent, or only those from --since on (a year, month or day, e.g. --since 2026); after that only new
 ones. Punches before --since are never sent, on any run. --state keeps
 the last punch time and the punches sent in the day before it, so a punch stamped in the same
-second, or after the device clock was moved back by less than a day, is still sent. The script reads
+second, or after the device clock was moved back by less than a day, is still sent (a bigger move back
+is logged; delete the state file to send those punches). Punches dated more than a day past this
+computer's clock come from a wrong device clock: they are held back (and logged) until this
+computer's clock is within a day of them, so they cannot hide the punches after them. Every run
+also sends the device's user list, so the site shows the names typed on the device. The script reads
 the device's whole log on every run, which takes longer on devices holding a large log.
 """
 
@@ -22,7 +26,16 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backfill_from_device import CHUNK, accepted, attlog_lines, cdata_request, post, read_device, since_date
+from backfill_from_device import (
+	CHUNK,
+	accepted,
+	attlog_lines,
+	cdata_request,
+	post,
+	post_users,
+	read_device,
+	since_date,
+)
 
 OVERLAP = timedelta(days=1)
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -65,15 +78,39 @@ def heartbeat(site, serial):
 
 def sync(args, state_path) -> bool:
 	"""One pull. Returns False if the site did not accept it (retried next run)."""
-	serial, records = read_device(args.device_ip, args.comm_key)
+	serial, records, users = read_device(args.device_ip, args.comm_key)
 	status, text = heartbeat(args.site_url, serial)
 	if status != 200:
 		hint = text.strip()[:120] if 300 <= status < 400 else "is the ZK Device enabled?"
 		log(f"Device {serial}: the site answered HTTP {status} ({hint})")
 		return False
 
+	# The names typed on the device, for mapping users to employees. The site only stores changes;
+	# a failure here is logged but does not hold up the punches.
+	status, text = post_users(args.site_url, serial, users)
+	if not accepted(status, text):
+		log(f"Device {serial}: user list rejected, HTTP {status} {text.strip()[:80]}")
+
+	# A punch dated well past this computer's clock means the device clock is wrong. Sending it
+	# would make it the last punch, and every real punch after the clock is fixed would look old.
+	latest_ok = datetime.now() + OVERLAP
+	future = [r for r in records if r.timestamp > latest_ok]
+	if future:
+		log(f"Device {serial}: holding back {len(future)} punch(es) dated after {latest_ok:%Y-%m-%d}; check the device clock")
+	newest_stored = records[-1] if records else None  # the device keeps its log in the order punched
+	records = [r for r in records if r.timestamp <= latest_ok]
+
 	last, sent = load_state(state_path)
+	if last and last > latest_ok:
+		log(f"Device {serial}: last sent punch {last} is in the future; sending the full log again")
+		last, sent = None, set()
 	since = max(filter(None, (last - OVERLAP if last else None, args.since)), default=None)
+	newest = newest_stored.timestamp if newest_stored else None
+	if newest and last and (args.since or datetime.min) <= newest < last - OVERLAP:
+		log(
+			f"Device {serial}: newest punch on the device ({newest}) is more than a day before the "
+			f"last sent one ({last}); if the device clock was moved back, delete {state_path} to send them"
+		)
 	# Punches at or before the last sent time are still new if they were not sent: a punch in
 	# the same second, or the device clock moved back (by less than OVERLAP).
 	window = sorted((r for r in records if not since or r.timestamp >= since), key=lambda r: r.timestamp)
