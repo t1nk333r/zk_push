@@ -13,7 +13,9 @@ Every step is done by you; nothing here runs automatically. Tick each box as you
 What v0.3.0 adds on the site:
 - since v0.2.0: the **ZK Time Card** report (Attendance like the ZKTeco Time Card, with Late,
   Early, OT, Actual ATT, one-punch days flagged and an optional monthly pay estimate), linked from
-  the ZK Push workspace;
+  the ZK Push workspace; the common device commands in the ZK Device form's **Device Commands**
+  menu (upload / re-upload punches for dates, and for System Managers: users, fingerprints, open
+  door, clear log; push devices only);
 - from v0.2.0: the **ZK Device User** doctype (names typed on the device, shown in **ZK Unmatched
   Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
 

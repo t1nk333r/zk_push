@@ -143,6 +143,39 @@ class TestProtocol(unittest.TestCase):
 		self.assertIsNone(protocol.parse_endpoint("app/employee"))
 		self.assertIsNone(protocol.parse_endpoint("iclock/a/b"))
 
+	def test_device_commands(self):
+		cmd = protocol.device_command
+		self.assertEqual(cmd("log"), "LOG")
+		self.assertEqual(cmd("clear_log"), "CLEAR LOG")
+		self.assertEqual(
+			cmd("reupload", from_time="2026-10-01 00:00:00", to_time=datetime(2026, 10, 31, 23, 59, 59)),
+			"DATA QUERY ATTLOG StartTime=2026-10-01 00:00:00\tEndTime=2026-10-31 23:59:59",
+		)
+		self.assertEqual(
+			cmd("set_user", pin="22", name="Abdulrahman", admin=1, card="123", password=""),
+			"DATA UPDATE USERINFO PIN=22\tName=Abdulrahman\tPri=14\tPasswd=\tCard=123\tGrp=1"
+			"\tTZ=0000000100000000\tVerify=0",
+		)
+		self.assertEqual(cmd("delete_user", pin="22"), "DATA DELETE USERINFO PIN=22")
+		self.assertEqual(cmd("enroll_fingerprint", pin="22", finger="6"), "ENROLL_FP PIN=22\tFID=6\tRETRY=3\tOVERWRITE=0")
+
+	def test_device_command_values_cannot_inject(self):
+		cmd = protocol.device_command
+		for bad in (
+			lambda: cmd("delete_user", pin="22\nCLEAR DATA"),
+			lambda: cmd("delete_user", pin=""),
+			lambda: cmd("set_user", pin="22", name="A\tPri=14"),
+			lambda: cmd("set_user", pin="22", name="Ali", card="12\t3"),
+			lambda: cmd("reupload", from_time="2026-10-31", to_time="2026-10-01"),
+			lambda: cmd("reupload", from_time="yesterday", to_time="2026-10-01"),
+			lambda: cmd("enroll_fingerprint", pin="22", finger="10"),
+			lambda: cmd("SHELL rm"),
+		):
+			with self.assertRaises(ValueError):
+				bad()
+		for action in protocol.ADMIN_ACTIONS:
+			self.assertNotIn(action, ("info", "check", "log", "reboot", "reupload"))
+
 
 if __name__ == "__main__":
 	unittest.main()

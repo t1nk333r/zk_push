@@ -1,6 +1,6 @@
 app_name = "zk_push"
 app_title = "ZK Push"
-app_publisher = "ZK Push contributors"
+app_publisher = "t1nk333r"
 app_description = "Receive ZKTeco ADMS (iclock) push attendance directly into ERPNext / HRMS"
 app_email = "35288751+t1nk333r@users.noreply.github.com"
 app_license = "mit"

@@ -2,7 +2,9 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-SAFE_COMMANDS = ("CHECK", "INFO", "REBOOT")
+# What HR Managers may send; anything else (changing or deleting data on the device) needs System Manager.
+SAFE_COMMANDS = ("CHECK", "INFO", "LOG", "REBOOT")
+SAFE_PREFIXES = ("DATA QUERY ATTLOG ",)  # re-upload punches for a time range
 # Status is only changed by the device exchange (via db.set_value). Read-only in the form is not
 # enforced on the server, so without this a REST update could set a finished REBOOT back to Pending.
 LOCKED_FIELDS = ("device", "command", "status")
@@ -19,6 +21,7 @@ class ZKDeviceCommand(Document):
 		self.command = (self.command or "").strip()
 		if "\n" in self.command or "\r" in self.command:
 			frappe.throw(_("Command must be a single line."))
-		if self.command not in SAFE_COMMANDS and "System Manager" not in frappe.get_roles():
+		safe = self.command in SAFE_COMMANDS or self.command.startswith(SAFE_PREFIXES)
+		if not safe and "System Manager" not in frappe.get_roles():
 			frappe.throw(_("Only System Managers can send custom commands."))
 		self.status = "Pending"

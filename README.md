@@ -35,7 +35,9 @@ Tested on Frappe 15.126 / ERPNext 15.93 / HRMS 15.54 with a ZKTeco MB20-VL
     device and a *Map* button.
   - **ZK Request Log**: the raw request and response of every exchange (per-device *Debug
     Logging*, failures always logged, kept 7 days).
-  - **ZK Device Command**: send `INFO`, `CHECK` (re-upload) or `REBOOT` to the device remotely.
+  - **ZK Device Command**: the common device commands from the device form (info, upload or
+    re-upload punches, reboot; and for System Managers: add / update / delete a user, enroll a
+    fingerprint, open the door, clear the log).
   - **ZK Push workspace** with live counts of unmatched, failed and pending punches.
 - **ZK Time Card** report: Attendance laid out like the ZKTeco Time Card (Late, Early, OT, Work,
   ATT, Actual ATT, totals), one-punch days flagged, and an optional monthly pay estimate.
@@ -277,8 +279,24 @@ on, punches older than *Ignore Punches Before* are dropped, not stored.
 | Debug Logging | Record every request in ZK Request Log; turn off once working |
 
 Device actions: *View Punches*, *Unmatched Users*, *Retry Unmatched / Error Punches*,
-*Reset Log Stamp + Re-upload*, and device commands *Request Device Info*,
-*Re-read Options (CHECK)*, *Reboot Device*.
+*Reset Log Stamp + Re-upload*, and the **Device Commands** menu (push devices only: the device picks
+them up on its next poll; pull mode cannot receive commands):
+
+| Command | Sends | Who |
+|---|---|---|
+| Request Device Info | `INFO` | HR Manager |
+| Upload New Punches | `LOG` | HR Manager |
+| Re-read Options (CHECK) | `CHECK` | HR Manager |
+| Re-upload Punches for Dates | `DATA QUERY ATTLOG StartTime=..\tEndTime=..` | HR Manager |
+| Reboot Device | `REBOOT` | HR Manager |
+| Add / Update User on Device | `DATA UPDATE USERINFO PIN=..\tName=..` (name, admin, card, password) | System Manager |
+| Enroll Fingerprint | `ENROLL_FP PIN=..\tFID=..` | System Manager |
+| Delete User from Device | `DATA DELETE USERINFO PIN=..` | System Manager |
+| Open Door | `AC_UNLOCK` (access-control models) | System Manager |
+| Clear Attendance Log | `CLEAR LOG` | System Manager |
+
+The command line is built on the server from checked values (no tabs or line breaks from a form).
+Not every firmware supports every command; the result comes back in ZK Device Command.
 
 ## Daily attendance
 
@@ -347,7 +365,8 @@ bench --site <test-site> run-tests --app zk_push            # full suite (ERPNex
 ## Security notes
 
 - Only enabled serial numbers are accepted; auto-registration is capped at 20 pending devices.
-- Custom device commands require System Manager; HR Managers can send INFO / CHECK / REBOOT.
+- Commands that change or delete data on the device, open a door, or are typed by hand require
+  System Manager; HR Managers can send INFO / LOG / CHECK / REBOOT and re-upload a date range.
 - Over plain HTTP, punch data (device user ID + time) is unencrypted and the serial number could
   be observed and replayed. Prefer HTTPS when the firmware offers it.
 - Never expose the device itself (TCP 4370, and the hidden SSH service some models run on 3718)
@@ -355,4 +374,4 @@ bench --site <test-site> run-tests --app zk_push            # full suite (ERPNex
 
 ## License
 
-MIT
+MIT. Copyright (c) 2026 t1nk333r. See [license.txt](license.txt).

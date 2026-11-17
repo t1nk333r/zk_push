@@ -202,6 +202,74 @@ def format_command(command_id, command: str) -> str:
 	return f"C:{command_id}:{command}\n"
 
 
+# Common push commands, by the action name the device form uses. Those without values:
+SIMPLE_COMMANDS = {
+	"info": "INFO",  # report device info (firmware, user / punch counts)
+	"check": "CHECK",  # re-read the server options and upload new data
+	"log": "LOG",  # upload new punches now
+	"reboot": "REBOOT",
+	"open_door": "AC_UNLOCK",  # access-control models: release the door lock
+	"clear_log": "CLEAR LOG",  # delete every punch stored on the device
+}
+# Actions that change or delete data on the device, or open a door.
+ADMIN_ACTIONS = ("set_user", "delete_user", "enroll_fingerprint", "open_door", "clear_log")
+DEVICE_PIN_RE = re.compile(r"[A-Za-z0-9]{1,24}")
+DIGITS_RE = re.compile(r"[0-9]{0,10}")
+DEVICE_NAME_MAX = 24
+ADMIN_PRIVILEGE = 14
+
+
+def device_command(action: str, **values) -> str:
+	"""The command line for a device-form action, built from checked values: tabs separate the
+	fields of a command and line breaks separate commands, so neither may come from a value.
+	Raises ValueError for an unknown action or a bad value."""
+
+	def pin():
+		value = str(values.get("pin") or "").strip()
+		if not DEVICE_PIN_RE.fullmatch(value):
+			raise ValueError("Device user ID: 1 to 24 letters or digits")
+		return value
+
+	def digits(key, label, limit=10):
+		value = str(values.get(key) or "").strip()
+		if not DIGITS_RE.fullmatch(value) or len(value) > limit:
+			raise ValueError(f"{label}: digits only, at most {limit}")
+		return value
+
+	def stamp(key):
+		value = values.get(key)
+		try:
+			value = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+		except ValueError:
+			raise ValueError("Give both a start and an end date and time") from None
+		return value.strftime(TIME_FORMAT)
+
+	if action in SIMPLE_COMMANDS:
+		return SIMPLE_COMMANDS[action]
+	if action == "reupload":
+		start, end = stamp("from_time"), stamp("to_time")
+		if end < start:
+			raise ValueError("The end is before the start")
+		return f"DATA QUERY ATTLOG StartTime={start}\tEndTime={end}"
+	if action == "set_user":
+		name = str(values.get("name") or "").strip()
+		if not name or len(name) > DEVICE_NAME_MAX or any(c in name for c in "\t\r\n"):
+			raise ValueError(f"Name: 1 to {DEVICE_NAME_MAX} characters")
+		privilege = ADMIN_PRIVILEGE if str(values.get("admin") or "0") in ("1", "True", "true") else 0
+		password = digits("password", "Password", 8)
+		card = digits("card", "Card number")
+		return (
+			f"DATA UPDATE USERINFO PIN={pin()}\tName={name}\tPri={privilege}\tPasswd={password}"
+			f"\tCard={card}\tGrp=1\tTZ=0000000100000000\tVerify=0"
+		)
+	if action == "delete_user":
+		return f"DATA DELETE USERINFO PIN={pin()}"
+	if action == "enroll_fingerprint":
+		finger = digits("finger", "Finger", 1) or "0"
+		return f"ENROLL_FP PIN={pin()}\tFID={finger}\tRETRY=3\tOVERWRITE=0"
+	raise ValueError(f"Unknown device command: {action}")
+
+
 def parse_devicecmd(body: str) -> list[dict]:
 	"""Parse a devicecmd POST body: one 'ID=12&Return=0&CMD=REBOOT' per command.
 

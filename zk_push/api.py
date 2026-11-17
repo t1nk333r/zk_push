@@ -3,7 +3,7 @@ import json
 import frappe
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
-from zk_push import iclock, processing
+from zk_push import iclock, processing, protocol
 
 MANAGER_ROLES = ("System Manager", "HR Manager")
 ONLINE_WINDOW_MINUTES = 5
@@ -46,6 +46,21 @@ def queue_command(device: str, command: str) -> int:
 	doc = frappe.get_doc({"doctype": "ZK Device Command", "device": device, "command": command})
 	doc.insert()
 	return doc.name
+
+
+@frappe.whitelist(methods=["POST"])
+def queue_device_command(device: str, action: str, **values) -> int:
+	"""Queue one of the common commands (protocol.device_command). Those that change or delete data
+	on the device, or open a door, need System Manager."""
+	frappe.only_for(MANAGER_ROLES)
+	if action in protocol.ADMIN_ACTIONS:
+		frappe.only_for("System Manager")
+	values.pop("cmd", None)
+	try:
+		command = protocol.device_command(action, **values)
+	except ValueError as e:
+		frappe.throw(str(e))
+	return queue_command(device, command)
 
 
 @frappe.whitelist(methods=["POST"])

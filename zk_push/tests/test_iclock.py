@@ -174,6 +174,16 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual((command.status, command.return_code), ("Done", 0))
 		self.assertIn("UserCount=27", command.response)
 
+		reupload = api.queue_device_command(
+			SN, "reupload", from_time="2026-10-01 00:00:00", to_time="2026-10-31 23:59:59"
+		)
+		self.assertEqual(
+			device_request("getrequest")[1],
+			f"C:{reupload}:DATA QUERY ATTLOG StartTime=2026-10-01 00:00:00\tEndTime=2026-10-31 23:59:59\n",
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.queue_device_command(SN, "delete_user", pin="22\nCLEAR DATA")
+
 		failed = api.queue_command(SN, "REBOOT")
 		device_request("getrequest")
 		device_request("devicecmd", "POST", f"ID={failed}&Return=-1002&CMD=REBOOT\n")

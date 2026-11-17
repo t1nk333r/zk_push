@@ -64,24 +64,9 @@ frappe.ui.form.on("ZK Device", {
 			__("Actions")
 		);
 
-		for (const [label, command] of [
-			[__("Request Device Info"), "INFO"],
-			[__("Re-read Options (CHECK)"), "CHECK"],
-			[__("Reboot Device"), "REBOOT"],
-		]) {
-			frm.add_custom_button(
-				label,
-				() => {
-					if (command === "REBOOT") {
-						frappe.confirm(__("Reboot the device? It will be offline for about a minute."), () =>
-							queue_command(frm, command)
-						);
-					} else {
-						queue_command(frm, command);
-					}
-				},
-				__("Device Commands")
-			);
+		for (const item of device_commands()) {
+			if (item.admin && !frappe.user.has_role("System Manager")) continue;
+			frm.add_custom_button(item.label, () => run_device_command(frm, item), __("Device Commands"));
 		}
 	},
 
@@ -168,18 +153,117 @@ frappe.ui.form.on("ZK Device", {
 	},
 });
 
-function queue_command(frm, command) {
-	frappe.call({
-		method: "zk_push.api.queue_command",
-		args: { device: frm.doc.name, command },
-		callback() {
-			frappe.show_alert({
-				message: __("{0} queued; the device picks it up on its next poll (a few seconds when online)", [
-					command,
-				]),
-				indicator: "green",
-			});
-			frm.reload_doc();
+// The common push commands; the server builds the command line from these values
+// (zk_push.protocol.device_command). admin: changes or deletes data on the device, System Manager only.
+function device_commands() {
+	const pin = { fieldname: "pin", fieldtype: "Data", label: __("Device User ID"), reqd: 1 };
+	return [
+		{ action: "info", label: __("Request Device Info") },
+		{ action: "log", label: __("Upload New Punches") },
+		{ action: "check", label: __("Re-read Options (CHECK)") },
+		{
+			action: "reupload",
+			label: __("Re-upload Punches for Dates..."),
+			fields: [
+				{ fieldname: "from_time", fieldtype: "Datetime", label: __("From"), reqd: 1 },
+				{ fieldname: "to_time", fieldtype: "Datetime", label: __("To"), reqd: 1 },
+			],
+			description: __("The device sends its punches in this range again; ones already received are ignored."),
 		},
-	});
+		{
+			action: "reboot",
+			label: __("Reboot Device"),
+			confirm: __("Reboot the device? It will be offline for about a minute."),
+		},
+		{
+			action: "set_user",
+			label: __("Add / Update User on Device..."),
+			admin: true,
+			fields: [
+				pin,
+				{ fieldname: "name", fieldtype: "Data", label: __("Name"), reqd: 1, length: 24 },
+				{ fieldname: "admin", fieldtype: "Check", label: __("Device Administrator") },
+				{ fieldname: "card", fieldtype: "Data", label: __("Card Number") },
+				{ fieldname: "password", fieldtype: "Password", label: __("Password (digits)") },
+			],
+			description: __(
+				"Replaces this user's name, privilege, card and password on the device; fingerprints and faces are kept."
+			),
+		},
+		{
+			action: "enroll_fingerprint",
+			label: __("Enroll Fingerprint..."),
+			admin: true,
+			fields: [
+				pin,
+				{
+					fieldname: "finger",
+					fieldtype: "Select",
+					label: __("Finger"),
+					options: "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+					default: "6",
+					description: __("0-4: left little to thumb, 5-9: right thumb to little (6 = right index)"),
+				},
+			],
+			description: __("The device asks the person to place the finger three times."),
+		},
+		{
+			action: "delete_user",
+			label: __("Delete User from Device..."),
+			admin: true,
+			fields: [pin],
+			description: __("Removes the user and their fingerprints, face and card from the device."),
+		},
+		{
+			action: "open_door",
+			label: __("Open Door"),
+			admin: true,
+			confirm: __("Release the door lock now? (access-control models only)"),
+		},
+		{
+			action: "clear_log",
+			label: __("Clear Attendance Log..."),
+			admin: true,
+			confirm: __(
+				"Delete every punch stored on the device? Punches not yet received here are lost for good. Check the device is up to date first."
+			),
+		},
+	];
+}
+
+function run_device_command(frm, item) {
+	const send = (values) =>
+		frappe.call({
+			method: "zk_push.api.queue_device_command",
+			args: { device: frm.doc.name, action: item.action, ...values },
+			callback() {
+				frappe.show_alert({
+					message: __("{0} queued; the device picks it up on its next poll (a few seconds when online)", [
+						item.label.replace(/\.\.\.$/, ""),
+					]),
+					indicator: "green",
+				});
+				frm.reload_doc();
+			},
+		});
+
+	if (item.fields) {
+		const dialog = new frappe.ui.Dialog({
+			title: item.label.replace(/\.\.\.$/, ""),
+			fields: [
+				...(item.description ? [{ fieldtype: "HTML", options: `<p class="text-muted">${item.description}</p>` }] : []),
+				...item.fields,
+			],
+			primary_action_label: __("Queue"),
+			primary_action(values) {
+				dialog.hide();
+				send(values);
+			},
+		});
+		dialog.show();
+	} else if (item.confirm) {
+		frappe.confirm(item.confirm, () => send({}));
+	} else {
+		send({});
+	}
 }

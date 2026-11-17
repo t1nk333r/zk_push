@@ -1,7 +1,7 @@
 [project]
 name = "zk_push"
 authors = [
-    { name = "ZK Push contributors" }
+    { name = "t1nk333r" }
 ]
 description = "Receive ZKTeco ADMS (iclock) push attendance directly into ERPNext / HRMS"
 requires-python = ">=3.10"
