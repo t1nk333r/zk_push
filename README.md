@@ -37,6 +37,8 @@ Tested on Frappe 15.126 / ERPNext 15.93 / HRMS 15.54 with a ZKTeco MB20-VL
     Logging*, failures always logged, kept 7 days).
   - **ZK Device Command**: send `INFO`, `CHECK` (re-upload) or `REBOOT` to the device remotely.
   - **ZK Push workspace** with live counts of unmatched, failed and pending punches.
+- **ZK Time Card** report: Attendance laid out like the ZKTeco Time Card (Late, Early, OT, Work,
+  ATT, Actual ATT, totals), one-punch days flagged, and an optional monthly pay estimate.
 
 ## How it works
 
@@ -283,12 +285,46 @@ Device actions: *View Punches*, *Unmatched Users*, *Retry Unmatched / Error Punc
 ZK Push creates **Employee Checkins**. To turn them into **Attendance** records, enable
 *Auto Attendance* on a **Shift Type** and assign employees to it (standard HRMS).
 
-The **ZK Time Card** report lays Attendance out like the ZKTeco software's Time Card: on / off
-duty, clock in / out, Late, Early, **OT Time**, Work Time and ATT Time, with totals. Late and Early
-use the Shift Type's grace periods. OT is counted from off duty once the stay reaches *OT Starts
-After* (default 60 minutes: leaving at 17:45 gives no OT, at 18:18 gives 01:18). **Actual ATT**
-is the shift + OT - Late - Early (Work Time + OT Time), the time to pay. A missing clock
-in or out counts as *Missing Punch Counts As* minutes Late / Early (default 60).
+### ZK Time Card report
+
+Attendance laid out like the ZKTeco software's Time Card, one row per day: day, status, notice,
+on / off duty, clock in / out, Late, Early, **OT Time**, Work Time, ATT Time and **Actual ATT**,
+with totals. Only the Attendance the user may read is shown and counted.
+
+- **Late / Early**: after on duty / before off duty, beyond the Shift Type's grace periods (used
+  when late entry / early exit marking is on), counted from on / off duty: 08:18 with 15 minutes
+  grace is 00:18 late. Never more than the shift.
+- **OT Time**: time after off duty, counted in full once it reaches *OT Starts After* (default
+  60 minutes: leaving at 17:45 gives no OT, at 18:18 gives 01:18; 0 counts every minute).
+  Arriving early is not overtime.
+- **Work Time**: the part of the shift attended. **ATT Time**: clock in to clock out.
+  **Actual ATT** = Work Time + OT Time, the time to pay (minutes inside a grace period are not
+  Late / Early, but are not Work either).
+- **One punch**: HRMS marks the day Absent. The report shows it **Present ⚠** with a notice, the
+  punch taken as clock in or clock out by the time of day, and the missing punch counted as
+  *Missing Punch Counts As* minutes (default 60) Late / Early, off Work. Not charged when the day
+  has an approved Attendance Request. Two punches marked Absent (short hours), a clock out before
+  the clock in, and a worked day without a shift are flagged too.
+- **No punches**: a Present / Work From Home day (marked by HR or approved by an Attendance
+  Request, e.g. a business trip) counts as the whole shift, a Half Day as half.
+- **Half Day with leave**: the leave half is neither Late nor Early.
+- *Show Durations in Minutes* switches 01:18 to 78.
+
+**Pay estimate.** With one Employee, a *Monthly Salary* and at most 31 days (one pay month, e.g.
+the 17th to the 16th), the totals add a rough estimate of that month's pay:
+
+- GOSI: the employee share (default 9.75%: Saudis registered before 3 July 2024; 10.75% for those
+  registered since, rising each July; 0 for non-Saudis) of the *GOSI Wage* (basic + housing,
+  default the salary), within 1,500 .. 45,000.
+- Absent days and unpaid leave (Leave Without Pay; half for a Half Day) at salary / 30.
+- Late and early minutes at a day / *Hours per Day* (default 8), if *Deduct Late / Early* is
+  ticked (default).
+- OT, if *Pay OT* is ticked: the hourly wage plus 50% of the basic hourly wage (Labor Law,
+  Art. 107).
+
+It is not a payroll: work-regulation penalties, loans and other deductions are not in it, days
+with no Attendance at all are not deducted, and holidays (work on them is not recorded unless the
+Shift Type marks attendance on holidays) and Ramadan hours are not handled.
 
 ## Troubleshooting
 
@@ -304,6 +340,7 @@ in or out counts as *Missing Punch Counts As* minutes Late / Early (default 60).
 
 ```bash
 python -m unittest zk_push.tests.test_protocol              # protocol tests, no Frappe needed
+python -m unittest zk_push.tests.test_time_card             # time card / pay rules, no Frappe needed
 bench --site <test-site> run-tests --app zk_push            # full suite (ERPNext + HRMS, allow_tests)
 ```
 

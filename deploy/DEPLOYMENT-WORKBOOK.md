@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.2.0 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.3.0 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,13 +6,18 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.2.0, migrate | install v0.2.0 |
+| What to do | update to v0.3.0, migrate | install v0.3.0 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.2.0 adds on the site: the **ZK Device User** doctype (names typed on the device, shown in
-**ZK Unmatched Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
-A `bench migrate` is required.
+What v0.3.0 adds on the site:
+- since v0.2.0: the **ZK Time Card** report (Attendance like the ZKTeco Time Card, with Late,
+  Early, OT, Actual ATT, one-punch days flagged and an optional monthly pay estimate), linked from
+  the ZK Push workspace;
+- from v0.2.0: the **ZK Device User** doctype (names typed on the device, shown in **ZK Unmatched
+  Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
+
+A `bench migrate` is required (no schema change since v0.2.0).
 
 ---
 
@@ -30,7 +35,7 @@ A `bench migrate` is required.
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.2.0
+  git fetch --tags && git checkout v0.3.0
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
@@ -58,19 +63,19 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.2.0.**
+- [ ] **B2. Get v0.3.0.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.2.0 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.0 && cd ../..
     ```
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.2.0 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.2.0 .
+    git clone --branch v0.3.0 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.0 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.2.0 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.2.0` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.3.0 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.3.0` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
   - Bench: `bench --site test.nss.sa migrate && bench restart`
   - Docker: `docker compose exec backend bench --site test.nss.sa migrate`, then
@@ -82,7 +87,11 @@ directory of the site's `compose.yaml`.
   ```
   Expect `ERROR: invalid SN  HTTP 400` (zk_push answering). `404` = the app is not active on the site.
 - [ ] **B5. Check the desk.** Log in, search **ZK Device User**: the list opens (empty). Press
-  **Ctrl + Shift + R** once so the browser drops its cached forms.
+  **Ctrl + Shift + R** once so the browser drops its cached forms. Search **ZK Time Card**: the
+  report opens (rows appear for employees with Attendance this month). If the **ZK Push**
+  workspace has no *ZK Time Card* link (someone edited the workspace on this site), run
+  `bench --site test.nss.sa reload-doc zk_push workspace zk_push` (Docker: prefix with
+  `docker compose exec backend`).
 
 ---
 
@@ -166,7 +175,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.2.0 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (then: git checkout v0.2.0 in it)
+    bench get-app --branch v0.3.0 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (then: git checkout v0.3.0 in it)
     bench --site nss.sa install-app zk_push
     bench restart
     ```

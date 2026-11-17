@@ -1,3 +1,4 @@
+// The desk does not send filters that are 0 or unticked; the server reads a missing number as 0.
 frappe.query_reports["ZK Time Card"] = {
 	filters: [
 		{
@@ -10,22 +11,62 @@ frappe.query_reports["ZK Time Card"] = {
 		{ fieldname: "to_date", label: __("To Date"), fieldtype: "Date", reqd: 1, default: frappe.datetime.get_today() },
 		{ fieldname: "employee", label: __("Employee"), fieldtype: "Link", options: "Employee" },
 		{ fieldname: "company", label: __("Company"), fieldtype: "Link", options: "Company" },
+		{ fieldname: "overtime_after", label: __("OT Starts After (min)"), fieldtype: "Int", default: 60 },
+		{ fieldname: "missing_punch", label: __("Missing Punch Counts As (min)"), fieldtype: "Int", default: 60 },
+		{ fieldname: "in_minutes", label: __("Show Durations in Minutes"), fieldtype: "Check" },
 		{
-			fieldname: "overtime_after",
-			label: __("OT Starts After (min)"),
-			fieldtype: "Int",
-			default: 60,
-			description: __("Staying past off duty counts as OT, from off duty, once it reaches this many minutes"),
+			fieldname: "monthly_salary",
+			label: __("Monthly Salary (basic + allowances)"),
+			fieldtype: "Currency",
+			depends_on: "employee",
 		},
 		{
-			fieldname: "missing_punch",
-			label: __("Missing Punch Counts As (min)"),
-			fieldtype: "Int",
-			default: 60,
-			description: __("A missing clock in or out counts as this many minutes Late / Early"),
+			fieldname: "gosi_wage",
+			label: __("GOSI Wage: basic + housing (blank: the salary)"),
+			fieldtype: "Currency",
+			depends_on: "monthly_salary",
+		},
+		{
+			fieldname: "gosi_percent",
+			label: __("GOSI Share % (9.75 / 10.75 for new since Jul 2024 / 0 non-Saudi)"),
+			fieldtype: "Float",
+			default: 9.75,
+			depends_on: "monthly_salary",
+		},
+		{
+			fieldname: "hours_per_day",
+			label: __("Hours per Day (for the hourly rate)"),
+			fieldtype: "Float",
+			default: 8,
+			depends_on: "monthly_salary",
+		},
+		{
+			fieldname: "deduct_late_early",
+			label: __("Deduct Late / Early Minutes"),
+			fieldtype: "Check",
+			default: 1,
+			depends_on: "monthly_salary",
+		},
+		{
+			fieldname: "pay_overtime",
+			label: __("Pay OT (Labor Law: hourly wage + 50% of basic)"),
+			fieldtype: "Check",
+			depends_on: "monthly_salary",
+		},
+		{
+			fieldname: "basic_salary",
+			label: __("Basic Salary for OT (blank: the salary)"),
+			fieldtype: "Currency",
+			depends_on: "pay_overtime",
 		},
 	],
 	formatter(value, row, column, data, default_formatter) {
+		// Days flagged for review (one punch, short hours, no shift): status and notice in orange.
+		if (["status", "notice"].includes(column.fieldname) && data && data.notice) {
+			const text = frappe.utils.escape_html(data[column.fieldname] || "");
+			const mark = column.fieldname === "status" ? " ⚠" : "";
+			return `<span style="color: var(--orange-600); font-weight: 600">${text}${mark}</span>`;
+		}
 		value = default_formatter(value, row, column, data);
 		if (column.fieldname === "actual_attended" && data && data.actual_attended) return `<b>${value}</b>`;
 		if (["late", "early"].includes(column.fieldname) && data && data[column.fieldname]) {
