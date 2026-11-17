@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"zkh1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>ZK Push: Attendance Devices</b></span>\", \"col\": 12}}, {\"id\": \"zks0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Devices\", \"col\": 4}}, {\"id\": \"zks1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Punches\", \"col\": 4}}, {\"id\": \"zks2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Failed Punches\", \"col\": 4}}, {\"id\": \"zks3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Pending Punches\", \"col\": 4}}, {\"id\": \"zks4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Users\", \"col\": 4}}, {\"id\": \"zks5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Employee Checkin\", \"col\": 4}}, {\"id\": \"zkh2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Records</b></span>\", \"col\": 12}}, {\"id\": \"zkc1\", \"type\": \"card\", \"data\": {\"card_name\": \"Attendance\", \"col\": 4}}, {\"id\": \"zkc2\", \"type\": \"card\", \"data\": {\"card_name\": \"Debugging\", \"col\": 4}}]",
+ "content": "[{\"id\": \"zkh1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>ZK Push: Attendance Devices</b></span>\", \"col\": 12}}, {\"id\": \"zks0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Devices\", \"col\": 4}}, {\"id\": \"zks1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Punches\", \"col\": 4}}, {\"id\": \"zks2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Failed Punches\", \"col\": 4}}, {\"id\": \"zks3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Pending Punches\", \"col\": 4}}, {\"id\": \"zks4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unmatched Users\", \"col\": 4}}, {\"id\": \"zks5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Employee Checkin\", \"col\": 4}}, {\"id\": \"zks6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"About\", \"col\": 4}}, {\"id\": \"zkh2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Records</b></span>\", \"col\": 12}}, {\"id\": \"zkc1\", \"type\": \"card\", \"data\": {\"card_name\": \"Attendance\", \"col\": 4}}, {\"id\": \"zkc2\", \"type\": \"card\", \"data\": {\"card_name\": \"Debugging\", \"col\": 4}}]",
  "creation": "2026-11-05 14:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -99,7 +99,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-11-17 12:00:00.000000",
+ "modified": "2026-11-17 15:45:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Push",
@@ -169,6 +169,13 @@
    "label": "Employee Checkin",
    "link_to": "Employee Checkin",
    "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "About",
+   "link_to": "zk-push-about",
+   "type": "Page"
   }
  ],
  "title": "ZK Push"
