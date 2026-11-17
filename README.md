@@ -283,6 +283,13 @@ Device actions: *View Punches*, *Unmatched Users*, *Retry Unmatched / Error Punc
 ZK Push creates **Employee Checkins**. To turn them into **Attendance** records, enable
 *Auto Attendance* on a **Shift Type** and assign employees to it (standard HRMS).
 
+The **ZK Time Card** report lays Attendance out like the ZKTeco software's Time Card: on / off
+duty, clock in / out, Late, Early, **OT Time**, Work Time and ATT Time, with totals. Late and Early
+use the Shift Type's grace periods. OT is counted from off duty once the stay reaches *OT Starts
+After* (default 60 minutes: leaving at 17:45 gives no OT, at 18:18 gives 01:18). **Actual ATT**
+is the shift + OT - Late - Early (Work Time + OT Time), the time to pay. A missing clock
+in or out counts as *Missing Punch Counts As* minutes Late / Early (default 60).
+
 ## Troubleshooting
 
 | Symptom | Check |
