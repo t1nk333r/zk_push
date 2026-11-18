@@ -95,6 +95,68 @@ class TestTimeCardReport(FrappeTestCase):
 		_, cards = report(employee=self.employee, monthly_salary=7000, to_date="2026-11-30")
 		self.assertIn("Pick at most 31 days", cards["Pay Estimate"])
 
+	def test_half_day_with_punches(self):
+		# Below the shift's half-day threshold, no leave: Late / Early as on the device, no half-day charge.
+		attendance(self.employee, "2026-10-12", "Half Day", "09:20", "17:00")
+		# Half a day of leave, and short of the other half: the shortfall is Early.
+		attendance(self.employee, "2026-10-13", "Half Day", "08:00", "10:00", leave_type="Casual Leave")
+		rows, _ = report(employee=self.employee, in_minutes=1)
+		late, leave = rows["2026-10-12"], rows["2026-10-13"]
+		self.assertEqual((late["late"], late["work"], late["absent_days"]), (80, 460, 0))
+		self.assertEqual((leave["late"], leave["work"], leave["early"], leave["absent_days"]), (None, 120, 150, 0))
+
+	def test_shift_with_no_length(self):
+		# HRMS refuses to save one; an older or imported record may still have it.
+		name = "_ZK Time Card Zero Shift"
+		if not frappe.db.exists("Shift Type", name):
+			frappe.get_doc(
+				{"doctype": "Shift Type", "name": name, "start_time": "08:00:00", "end_time": "17:00:00"}
+			).insert(ignore_permissions=True)
+		frappe.db.set_value("Shift Type", name, "end_time", "08:00:00")
+		attendance(self.employee, "2026-10-14", "Present", "08:00", "17:00", shift=name)
+		rows, _ = report(employee=self.employee)
+		self.assertEqual(rows["2026-10-14"]["notice"], "Shift has no length: fix its start and end")
+		self.assertEqual(rows["2026-10-14"]["work"], "")
+
+	def test_input_checks(self):
+		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")
+		_, cards = report(employee=self.employee, monthly_salary=7000, gosi_percent=-5)
+		self.assertEqual(cards["Pay Estimate"], "Salary, GOSI and hours cannot be negative")
+		with self.assertRaisesRegex(frappe.ValidationError, "at most 62 days"):
+			report(to_date="2027-01-31")
+		report(employee=self.employee, to_date="2027-01-31")  # one employee: any period
+
+	def test_excel_time_card(self):
+		from io import BytesIO
+
+		from openpyxl import load_workbook
+
+		from zk_push.zk_push.report.zk_time_card.time_card_excel import build
+
+		attendance(self.employee, "2026-10-05", "Present", "08:20", "17:00")
+		attendance(self.employee, "2026-10-06", "Absent", "07:57")  # one punch
+		attendance(self.other, "2026-10-05", "Absent")
+		filters = {"from_date": "2026-10-01", "to_date": "2026-10-31", "overtime_after": 60, "missing_punch": 60}
+
+		titles = load_workbook(BytesIO(build(frappe._dict(filters)))).sheetnames  # one sheet per employee
+		for employee in (self.employee, self.other):
+			self.assertIn(frappe.db.get_value("Employee", employee, "employee_name")[:28], titles)
+
+		content = build(frappe._dict({**filters, "employee": self.employee, "monthly_salary": 7000, "gosi_percent": 9.75}))
+		sheet = load_workbook(BytesIO(content)).active
+		values = [[c.value for c in row] for row in sheet.iter_rows()]
+		header = values[5]
+		self.assertEqual(header[:3], ["Date", "Day", "Status"])
+		self.assertEqual(values[6][header.index("Late")], "00:20")
+		self.assertEqual(values[7][header.index("Status")], "Present")
+		self.assertEqual(values[7][header.index("Notice")], "One punch: no clock out")
+		total = values[8]
+		self.assertEqual((total[0], total[header.index("Late")], total[header.index("Early")]), ("Total", "00:20", "01:00"))
+		labels = [row[0] for row in values]
+		self.assertIn("Estimated Net Pay", labels)
+		self.assertEqual(sheet.print_title_rows, "$6:$6")
+		self.assertEqual(sheet.page_setup.orientation, "landscape")
+
 	def test_totals_only_count_what_the_user_may_see(self):
 		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")
 		attendance(self.other, "2026-10-05", "Absent")

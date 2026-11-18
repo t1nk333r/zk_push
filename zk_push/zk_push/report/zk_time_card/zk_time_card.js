@@ -60,6 +60,14 @@ frappe.query_reports["ZK Time Card"] = {
 			depends_on: "pay_overtime",
 		},
 	],
+	onload(report) {
+		report.page.add_inner_button(__("Excel Time Card"), () => {
+			// Same filters as on screen; one sheet per employee, ready to print.
+			open_url_post("/api/method/zk_push.zk_push.report.zk_time_card.time_card_excel.download", {
+				filters: JSON.stringify(report.get_filter_values()),
+			});
+		});
+	},
 	formatter(value, row, column, data, default_formatter) {
 		// Days flagged for review (one punch, short hours, no shift): status and notice in orange.
 		if (["status", "notice"].includes(column.fieldname) && data && data.notice) {

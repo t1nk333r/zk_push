@@ -94,6 +94,11 @@ directory of the site's `compose.yaml`.
   workspace has no *ZK Time Card* link (someone edited the workspace on this site), run
   `bench --site test.nss.sa reload-doc zk_push workspace zk_push` (Docker: prefix with
   `docker compose exec backend`).
+- [ ] **B6. Let HRMS calculate.** Open each **Shift Type** used by staff and tick **Enable Auto
+  Attendance** (with *Process Attendance After*) and **Automatically update Last Sync of
+  Checkin**. Without the second one HRMS never marks new days: zk_push delivers the checkins, HRMS
+  makes the Attendance after each shift ends. Keep *Determine Check-in and Check-out* on
+  *Alternating entries*.
 
 ---
 

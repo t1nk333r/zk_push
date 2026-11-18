@@ -82,6 +82,7 @@ def enqueue_processing():
 
 
 def process_pending():
+	_requeue_mapped_pins()
 	names = frappe.get_all(
 		"ZK Punch",
 		filters={"status": "Pending"},
@@ -98,6 +99,17 @@ def process_pending():
 		frappe.enqueue(
 			"zk_push.processing.process_pending", queue="short", timeout=JOB_TIMEOUT, enqueue_after_commit=True
 		)
+
+
+def _requeue_mapped_pins():
+	"""Unmatched punches whose pin an employee has by now. on_employee_update requeues them when the
+	pin is set, but misses punches a running job was holding then (Pending, marked Unmatched after)."""
+	frappe.db.sql(
+		"""update `tabZK Punch` p join `tabEmployee` e on e.attendance_device_id = p.pin
+		set p.status = 'Pending', p.error = null
+		where p.status = 'Unmatched'"""
+	)
+	_commit()
 
 
 def requeue(
@@ -140,6 +152,10 @@ def map_pin(device: str, pin: str, employee: str, overwrite: bool = False) -> in
 		)
 
 	doc = frappe.get_doc("Employee", employee)
+	# A System Manager may lack Employee write permission; anyone else must be allowed to edit this
+	# employee (User Permissions can limit an HR Manager to one company).
+	if "System Manager" not in frappe.get_roles():
+		frappe.has_permission("Employee", "write", doc, throw=True)
 	if doc.attendance_device_id and doc.attendance_device_id != pin and not overwrite:
 		frappe.throw(
 			_("{0} already has Attendance Device ID {1}. Tick Overwrite to replace it.").format(
@@ -150,7 +166,6 @@ def map_pin(device: str, pin: str, employee: str, overwrite: bool = False) -> in
 	waiting = frappe.db.count("ZK Punch", {"pin": pin, "status": ("in", RETRYABLE_STATUSES)})
 	if doc.attendance_device_id != pin:
 		doc.attendance_device_id = pin
-		# api.map_pin already checked the role; a System Manager may lack Employee write permission.
 		doc.save(ignore_permissions=True)  # on_employee_update requeues this pin's punches
 	else:
 		requeue(pin=pin)
@@ -234,7 +249,11 @@ def _process_one(name: str, context: _Context):
 		frappe.db.rollback(save_point="zk_punch")
 		raise
 	except Exception as e:
-		frappe.db.rollback(save_point="zk_punch")
+		try:
+			frappe.db.rollback(save_point="zk_punch")
+		except Exception:
+			# A deadlock or lock wait timeout ends the whole transaction, savepoint included.
+			frappe.db.rollback()
 		frappe.clear_messages()
 		result = {"status": "Error", "error": _error_text(e)}
 
@@ -264,6 +283,9 @@ def _evaluate(punch, context: _Context) -> dict:
 	employee = employees[0]
 	matched = {"employee": employee.name, "employee_name": employee.employee_name}
 
+	# Lock the employee so a job running at the same time (two devices, same second) waits here
+	# and then finds this checkin, instead of both inserting one.
+	frappe.db.sql("select name from `tabEmployee` where name = %s for update", employee.name)
 	# Same employee, same second = same punch, whatever its log type ('' and NULL both mean blank).
 	existing = frappe.db.get_value(
 		"Employee Checkin", {"employee": employee.name, "time": punch.punch_time}, "name"

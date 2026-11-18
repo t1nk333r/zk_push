@@ -274,8 +274,9 @@ on, punches older than *Ignore Punches Before* are dropped, not stored.
 | Branch | Copied onto each punch, for reporting / multi-location |
 | Ignore Punches Before | Older punches are stored as Skipped (retry them after changing the date) |
 | Discard Instead of Skipping | Drop punches before *Ignore Punches Before* as they arrive instead of storing them. The push equivalent of the pull agent's `--since`; dropped punches can only be recovered from the device |
-| Checkin Log Type | *Leave Blank* (default) lets the Shift Type alternate IN/OUT. *From Device Status* uses the Check-In/Check-Out key pressed on the device |
+| Checkin Log Type | *From Device Status* (default for new devices) sets IN/OUT from the Check-In/Check-Out key pressed on the device. *Leave Blank* lets the Shift Type alternate IN/OUT. Devices that already exist keep their setting |
 | Latitude / Longitude | Only needed if HR Settings → *Allow Geolocation Tracking* is on |
+| Allowed IP Addresses | Optional addresses or networks (`203.0.113.7, 10.0.0.0/24`) the device connects from; requests from anywhere else are refused and change nothing. Set it when the device reaches the site over the internet |
 | Debug Logging | Record every request in ZK Request Log; turn off once working |
 
 Device actions: *View Punches*, *Unmatched Users*, *Retry Unmatched / Error Punches*,
@@ -300,8 +301,16 @@ Not every firmware supports every command; the result comes back in ZK Device Co
 
 ## Daily attendance
 
-ZK Push creates **Employee Checkins**. To turn them into **Attendance** records, enable
-*Auto Attendance* on a **Shift Type** and assign employees to it (standard HRMS).
+ZK Push is the middleware: it receives punches and creates **Employee Checkins**. HRMS does the
+calculation (Attendance, late entry, early exit, working hours). On each **Shift Type**:
+
+| Setting | Value |
+|---|---|
+| Enable Auto Attendance | On, with *Process Attendance After* set |
+| Automatically update Last Sync of Checkin | **On**. HRMS only marks shifts that ended before *Last Sync of Checkin*; punches arrive in real time, so let HRMS move it forward after each shift. Left off, it stays where it was and no new Attendance is made |
+| Determine Check-in and Check-out | *Alternating entries* is the safer choice (a wrong key press does not matter). *Strictly based on Log Type* uses the device keys, with Checkin Log Type *From Device Status* |
+
+Then assign employees to the shift (Shift Assignment, or Default Shift on the Employee).
 
 ### ZK Time Card report
 
@@ -325,8 +334,15 @@ with totals. Only the Attendance the user may read is shown and counted.
   the clock in, and a worked day without a shift are flagged too.
 - **No punches**: a Present / Work From Home day (marked by HR or approved by an Attendance
   Request, e.g. a business trip) counts as the whole shift, a Half Day as half.
-- **Half Day with leave**: the leave half is neither Late nor Early.
+- **Half Day with leave**: the leave half is neither Late nor Early; time short of the worked half
+  counts as Early. A Half Day without leave (below the shift's half-day threshold) keeps its
+  Late / Early, like the device software.
 - *Show Durations in Minutes* switches 01:18 to 78.
+
+**Excel Time Card.** The button above the report downloads the same rows as a print-ready workbook:
+one sheet per employee with a title block, the columns of the ZKTeco Time Card plus Day, Status,
+Actual ATT and Notice, totals, day counts, the pay estimate (one employee only), and signature
+lines. It prints landscape on A4, one page wide, with the header row repeated on each page.
 
 **Pay estimate.** With one Employee, a *Monthly Salary* and at most 31 days (one pay month, e.g.
 the 17th to the 16th), the totals add a rough estimate of that month's pay:
@@ -365,6 +381,13 @@ bench --site <test-site> run-tests --app zk_push            # full suite (ERPNex
 ## Security notes
 
 - Only enabled serial numbers are accepted; auto-registration is capped at 20 pending devices.
+- The serial number is printed on the device, so it is not a secret: anyone who knows it could post
+  punches. Set **Allowed IP Addresses** on each device that connects over the internet (or allow only
+  those addresses for `/iclock` in nginx). Behind a proxy, the proxy must overwrite
+  `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $remote_addr;`), otherwise it can be forged.
+- Uploads over 8 MB are refused (413) and the device keeps the data.
+- ZK Request Log masks device user passwords, card numbers and fingerprint templates. Card numbers
+  on ZK Device User are visible only to System Managers and HR Managers.
 - Commands that change or delete data on the device, open a door, or are typed by hand require
   System Manager; HR Managers can send INFO / LOG / CHECK / REBOOT and re-upload a date range.
 - Over plain HTTP, punch data (device user ID + time) is unencrypted and the serial number could

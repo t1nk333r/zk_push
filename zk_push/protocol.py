@@ -15,6 +15,7 @@ ATTLOG line (tab separated):
 """
 
 import html
+import ipaddress
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,6 +37,11 @@ LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
 LOOSE_LINE_RE = re.compile(
 	r"^\s*(?P<pin>\S+)\s+(?P<time>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?P<rest>.*)$", re.ASCII
 )
+ENDPOINT_RE = re.compile(r"[a-z0-9_-]{1,32}")
+_STAMP_TEXT = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+REUPLOAD_RE = re.compile(rf"DATA QUERY ATTLOG StartTime={_STAMP_TEXT}\tEndTime={_STAMP_TEXT}")
+# Passwd=, Card= (USER lines) and TMP= (fingerprint / face templates) up to the next tab or line end.
+SECRET_RE = re.compile(r"\b(Passwd|Password|Card|TMP|Tmp)=[^\t\r\n]*")
 
 # Device "status" (state key pressed on the terminal) -> ERPNext log type.
 # 0 Check-In, 1 Check-Out, 2 Break-Out, 3 Break-In, 4 OT-In, 5 OT-Out
@@ -270,7 +276,10 @@ def device_command(action: str, **values) -> str:
 	raise ValueError(f"Unknown device command: {action}")
 
 
-def parse_devicecmd(body: str) -> list[dict]:
+MAX_RESULT_EXTRA_LINES = 200
+
+
+def parse_devicecmd(body: str, limit: int = 100) -> list[dict]:
 	"""Parse a devicecmd POST body: one 'ID=12&Return=0&CMD=REBOOT' per command.
 
 	Some commands (INFO) append extra key=value lines after the result line; they are
@@ -282,6 +291,8 @@ def parse_devicecmd(body: str) -> list[dict]:
 		if not line:
 			continue
 		if line.startswith("ID="):
+			if len(results) >= limit:
+				break
 			values = dict(parse_qsl(line, keep_blank_values=True))
 			results.append(
 				{
@@ -291,7 +302,7 @@ def parse_devicecmd(body: str) -> list[dict]:
 					"extra": [],
 				}
 			)
-		elif results:
+		elif results and len(results[-1]["extra"]) < MAX_RESULT_EXTRA_LINES:
 			results[-1]["extra"].append(line[:500])
 	return results
 
@@ -301,7 +312,35 @@ def parse_endpoint(path: str) -> str | None:
 	parts = [p for p in (path or "").strip("/ ").split("/") if p]
 	if len(parts) != 2 or parts[0].lower() != "iclock":
 		return None
-	endpoint = parts[1].lower()
-	if endpoint.endswith(".aspx"):
-		endpoint = endpoint[: -len(".aspx")]
-	return endpoint or None
+	endpoint = parts[1].lower().removesuffix(".aspx")
+	# It ends up in the request log and Error Log titles.
+	return endpoint if ENDPOINT_RE.fullmatch(endpoint) else None
+
+
+def is_reupload_command(command: str) -> bool:
+	"""Exactly what device_command('reupload') builds, nothing appended."""
+	return REUPLOAD_RE.fullmatch(command or "") is not None
+
+
+def ip_allowed(ip: str | None, allowed: str | None) -> bool:
+	"""Whether `ip` matches one of the addresses or networks in `allowed` (separated by commas,
+	spaces or lines). An empty list allows any address; an unreadable entry matches nothing."""
+	entries = [e for e in re.split(r"[\s,]+", allowed or "") if e]
+	if not entries:
+		return True
+	try:
+		address = ipaddress.ip_address((ip or "").strip())
+	except ValueError:
+		return False
+	for entry in entries:
+		try:
+			if address in ipaddress.ip_network(entry, strict=False):
+				return True
+		except ValueError:
+			continue
+	return False
+
+
+def mask_secrets(body: str) -> str:
+	"""Hide device user passwords, card numbers and fingerprint templates before a body is logged."""
+	return SECRET_RE.sub(r"\1=***", body or "")

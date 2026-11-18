@@ -16,34 +16,46 @@ const ZK_VERIFY_TYPE = {
 	25: __("Palm"),
 };
 
+// The roles zk_push.api checks for Retry and Map; HR Users can read punches but not change them.
+const ZK_MANAGER_ROLES = ["System Manager", "HR Manager"];
+
+function zk_reload_later(frm) {
+	const name = frm.doc.name;
+	setTimeout(() => {
+		if (cur_frm === frm && frm.doc.name === name) frm.reload_doc();
+	}, 3000);
+}
+
 frappe.ui.form.on("ZK Punch", {
 	refresh(frm) {
 		frm.trigger("explain_status");
+		const manager = frappe.user.has_role(ZK_MANAGER_ROLES);
 
-		if (["Unmatched", "Error", "Skipped"].includes(frm.doc.status)) {
+		if (manager && ["Unmatched", "Error", "Skipped"].includes(frm.doc.status)) {
 			frm.add_custom_button(__("Retry"), () => {
 				frappe.call({
 					method: "zk_push.api.retry_punches",
 					args: { names: [frm.doc.name] },
 					callback() {
 						frappe.show_alert({ message: __("Queued for processing"), indicator: "green" });
-						setTimeout(() => frm.reload_doc(), 3000);
+						zk_reload_later(frm);
 					},
 				});
 			});
 		}
 
-		if (frm.doc.status === "Unmatched") {
-			frm.add_custom_button(__("Map to Employee"), () => map_pin_dialog(frm.doc.device, frm.doc.pin, () => {
-				setTimeout(() => frm.reload_doc(), 3000);
-			})).addClass("btn-primary");
+		if (manager && frm.doc.status === "Unmatched") {
+			frm.add_custom_button(__("Map to Employee"), () =>
+				map_pin_dialog(frm.doc.device, frm.doc.pin, () => zk_reload_later(frm))
+			).addClass("btn-primary");
 		}
 
 		frm.add_custom_button(
-			__("Other Punches of User {0}", [frm.doc.pin]),
+			__("Other Punches of User {0}", [frappe.utils.escape_html(frm.doc.pin)]),
 			() => frappe.set_route("List", "ZK Punch", { device: frm.doc.device, pin: frm.doc.pin }),
 			__("View")
 		);
+		if (!manager) return;  // ZK Request Log is for managers only
 		frm.add_custom_button(
 			__("Device Requests Around This Time"),
 			() =>
@@ -75,9 +87,9 @@ frappe.ui.form.on("ZK Punch", {
 			Pending: [__("Waiting for the background job. If this stays for more than a few minutes, check that the workers are running."), "orange"],
 			Created: [__("Employee Checkin created."), "green"],
 			Duplicate: [__("A checkin for this employee at this exact time already existed, so nothing was created."), "blue"],
-			Unmatched: [__("No employee has Attendance Device ID {0}. Use Map to Employee, or set it on the Employee.", [doc.pin]), "yellow"],
+			Unmatched: [__("No employee has Attendance Device ID {0}. Use Map to Employee, or set it on the Employee.", [frappe.utils.escape_html(doc.pin)]), "yellow"],
 			Skipped: [__("Older than the device's Ignore Punches Before date. Retry after changing that date to import it."), "blue"],
-			Error: [__("HRMS rejected the checkin: {0}", [doc.error || "?"]), "red"],
+			Error: [__("HRMS rejected the checkin: {0}", [frappe.utils.escape_html(doc.error || "?")]), "red"],
 		};
 		const [message, color] = messages[doc.status] || ["", "blue"];
 		frm.set_intro([message, parts.join(" · ")].filter(Boolean).join("<br>"), color);

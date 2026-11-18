@@ -27,6 +27,8 @@ MAX_USERS_PER_REQUEST = 10000
 MAX_COMMAND_RESULTS = 100
 # Unreadable ATTLOG lines kept in the Error Log per request (each line is at most 500 characters).
 MAX_LOGGED_INVALID_LINES = 1000
+# Largest upload accepted. A full history of 100,000 punches is about 4 MB; devices split bigger ones.
+MAX_BODY_BYTES = 8 * 1024 * 1024
 
 DEVICE_FIELDS = [
 	"name",
@@ -40,6 +42,7 @@ DEVICE_FIELDS = [
 	"att_stamp",
 	"import_from",
 	"discard_before_import",
+	"allowed_ips",
 ]
 
 
@@ -63,10 +66,23 @@ class _Exchange:
 		self.body = ""
 		self.error = None
 		self.punches = 0
+		self._text = None
 
 	def respond(self, body, status=200):
 		self.body, self.status = body, status
 		return self
+
+	def text(self) -> str:
+		"""The request body, decoded once."""
+		if self._text is None:
+			self._text = self.request.get_data(as_text=True) if self.request.method == "POST" else ""
+		return self._text
+
+	def too_large(self) -> bool:
+		length = self.request.content_length
+		if length is None:  # chunked upload: only known once read (Frappe caps the read itself)
+			length = len(self.text())
+		return length > MAX_BODY_BYTES
 
 
 def handle(endpoint: str, request=None) -> Response:
@@ -95,9 +111,16 @@ def _handle(ex: _Exchange):
 	if not device:
 		return ex.respond("ERROR: unknown device", 403)
 
+	# The serial number is printed on the device, so it is no secret: when the device has a list of
+	# allowed addresses, a request from anywhere else changes nothing (not even Last Seen).
+	if not protocol.ip_allowed(_client_ip(request), device.allowed_ips):
+		return ex.respond("ERROR: address not allowed", 403)
+
 	_touch(device, request)
 	if not device.enabled:
 		return ex.respond("ERROR: device not enabled", 403)
+	if request.method == "POST" and ex.too_large():
+		return ex.respond("ERROR: body too large", 413)
 
 	if ex.endpoint == "cdata" and request.method == "GET":
 		return ex.respond(protocol.build_handshake(sn, device.att_stamp))
@@ -106,7 +129,7 @@ def _handle(ex: _Exchange):
 	if ex.endpoint == "getrequest":
 		return ex.respond(_next_command(device) or "OK")
 	if ex.endpoint == "devicecmd":
-		_command_results(device, request.get_data(as_text=True))
+		_command_results(device, ex.text())
 		return ex.respond("OK")
 	# ping, registry, ...: acknowledge.
 	return ex.respond("OK")
@@ -117,14 +140,14 @@ def _receive(ex: _Exchange) -> str:
 	table = (request.args.get("table") or "").upper()
 	if table == "OPERLOG":
 		# Only the USER lines matter: the names typed on the device, to make mapping easy.
-		users = protocol.parse_operlog_users(request.get_data(as_text=True))[:MAX_USERS_PER_REQUEST]
+		users = protocol.parse_operlog_users(ex.text())[:MAX_USERS_PER_REQUEST]
 		processing.store_users(device.name, users)
 		return "OK"
 	if table != "ATTLOG":
 		# ATTPHOTO, ... are not needed; acknowledge so the device moves on.
 		return "OK"
 
-	punches, invalid = protocol.parse_attlog(request.get_data(as_text=True))
+	punches, invalid = protocol.parse_attlog(ex.text())
 	if invalid:
 		# They are acknowledged below, so the device will not send them again: keep them (up to a
 		# limit, so one huge unreadable batch cannot make the log insert, and the request, fail).
@@ -184,11 +207,14 @@ def _next_command(device) -> str | None:
 
 def _command_results(device, body: str):
 	# One query for the device's commands named in the body (it could hold thousands of lines).
-	results = [r for r in protocol.parse_devicecmd(body) if r["id"].isdigit()][:MAX_COMMAND_RESULTS]
+	results = [r for r in protocol.parse_devicecmd(body, MAX_COMMAND_RESULTS) if r["id"].isdigit()]
 	ids = {int(r["id"]) for r in results}
+	# Only commands waiting for a reply: a late reply must not reopen one that was failed or cancelled.
 	own = set(
 		frappe.get_all(
-			"ZK Device Command", filters={"device": device.name, "name": ("in", list(ids))}, pluck="name"
+			"ZK Device Command",
+			filters={"device": device.name, "name": ("in", list(ids)), "status": "Sent"},
+			pluck="name",
 		)
 		if ids
 		else ()
@@ -279,7 +305,8 @@ def _log_request(ex: _Exchange):
 
 	try:
 		request = ex.request
-		body = request.get_data(as_text=True) if request.method == "POST" else ""
+		# Not read again if the upload was refused for its size.
+		body = "" if ex.status == 413 else ex.text()
 		frappe.get_doc(
 			{
 				"doctype": "ZK Request Log",
@@ -287,8 +314,8 @@ def _log_request(ex: _Exchange):
 				"method": request.method,
 				"endpoint": ex.endpoint,
 				"query_string": protocol.safe_text(request.query_string.decode(errors="replace"), 2000),
-				"request_body": body[:MAX_LOGGED_BODY],
-				"body_size": len(body),
+				"request_body": protocol.mask_secrets(body[:MAX_LOGGED_BODY]),
+				"body_size": len(body) or request.content_length or 0,
 				"punches": ex.punches,
 				"response_status": ex.status,
 				"response_body": ex.body[:5000],

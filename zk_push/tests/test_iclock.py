@@ -15,13 +15,14 @@ from zk_push import iclock, processing
 SN = "ZKTEST000001"
 
 
-def device_request(endpoint, method="GET", body=None, **params):
+def device_request(endpoint, method="GET", body=None, remote_addr="127.0.0.1", **params):
 	builder = EnvironBuilder(
 		path=f"/iclock/{endpoint}",
 		method=method,
 		query_string=urlencode({"SN": SN, **params}),
 		data=body,
 		content_type="text/plain",
+		environ_base={"REMOTE_ADDR": remote_addr},
 	)
 	response = iclock.handle(endpoint, Request(builder.get_environ()))
 	return response.status_code, response.get_data(as_text=True)
@@ -42,7 +43,7 @@ class TestIclock(FrappeTestCase):
 		frappe.db.set_value("ZK Device", SN, {"enabled": 1, **values})
 
 	def test_unknown_device_is_registered_disabled(self):
-		status, text = device_request("cdata", options="all")
+		status, _text = device_request("cdata", options="all")
 		self.assertEqual(status, 403)
 		device = frappe.get_doc("ZK Device", SN)
 		self.assertFalse(device.enabled)
@@ -79,7 +80,7 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual(checkin.employee, self.employee)
 		self.assertEqual(checkin.time, datetime(2026, 11, 5, 8, 0, 0))
 		self.assertEqual(checkin.device_id, SN)
-		self.assertFalse(checkin.log_type)
+		self.assertEqual(checkin.log_type, "IN")  # new devices default to From Device Status
 
 		self.assertEqual(frappe.db.get_value("ZK Punch", f"{SN}-9999-20261105080100", "status"), "Unmatched")
 
@@ -106,6 +107,12 @@ class TestIclock(FrappeTestCase):
 		punch = frappe.get_doc("ZK Punch", f"{SN}-7001-20261105170000")
 		self.assertEqual(punch.status, "Created")
 		self.assertEqual(frappe.db.get_value("Employee Checkin", punch.employee_checkin, "log_type"), "OUT")
+
+		self.enable_device(log_type_mode="Leave Blank")
+		device_request("cdata", "POST", "7001\t2026-11-06 08:00:00\t0\t1\n", table="ATTLOG")
+		processing.process_pending()
+		punch = frappe.get_doc("ZK Punch", f"{SN}-7001-20261106080000")
+		self.assertFalse(frappe.db.get_value("Employee Checkin", punch.employee_checkin, "log_type"))
 
 	def test_discard_before_import(self):
 		device_request("cdata")
@@ -163,7 +170,7 @@ class TestIclock(FrappeTestCase):
 		from zk_push import api
 
 		name = api.queue_command(SN, "INFO")
-		status, text = device_request("getrequest")
+		_status, text = device_request("getrequest")
 		self.assertEqual(text, f"C:{name}:INFO\n")
 		self.assertEqual(frappe.db.get_value("ZK Device Command", name, "status"), "Sent")
 		self.assertEqual(device_request("getrequest")[1], "OK")  # nothing else queued
@@ -284,8 +291,80 @@ class TestIclock(FrappeTestCase):
 			frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "INFO"}).insert()
 			with self.assertRaisesRegex(frappe.ValidationError, "System Managers"):
 				frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": "CLEAR LOG"}).insert()
+			# Re-uploading punches is allowed, but nothing may ride along on it.
+			reupload = "DATA QUERY ATTLOG StartTime=2026-10-01 00:00:00\tEndTime=2026-10-31 23:59:59"
+			frappe.get_doc({"doctype": "ZK Device Command", "device": SN, "command": reupload}).insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "System Managers"):
+				frappe.get_doc(
+					{"doctype": "ZK Device Command", "device": SN, "command": reupload + "\tPIN=1"}
+				).insert()
+
+			from zk_push import api
+
+			self.assertTrue(api.queue_device_command(SN, "info"))
+			# frappe.only_for is skipped in tests; the command's own validate still refuses it.
+			with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
+				api.queue_device_command(SN, "delete_user", pin="22")
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_allowed_ips(self):
+		device_request("cdata")
+		self.enable_device(allowed_ips="10.0.0.0/24, 192.0.2.9")
+		frappe.local.request_ip = None  # the test uses REMOTE_ADDR
+		status, text = device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", "203.0.113.5", table="ATTLOG")
+		self.assertEqual((status, text), (403, "ERROR: address not allowed"))
+		self.assertEqual(frappe.db.count("ZK Punch", {"device": SN}), 0)
+		self.assertNotEqual(frappe.db.get_value("ZK Device", SN, "last_ip"), "203.0.113.5")
+
+		status, _text = device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", "10.0.0.7", table="ATTLOG")
+		self.assertEqual(status, 200)
+		self.assertEqual(frappe.db.get_value("ZK Device", SN, "last_ip"), "10.0.0.7")
+		self.assertEqual(device_request("getrequest", remote_addr="192.0.2.9")[0], 200)
+
+	def test_oversized_upload_is_refused(self):
+		device_request("cdata")
+		self.enable_device()
+		with patch.object(iclock, "MAX_BODY_BYTES", 20):
+			status, _text = device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG")
+		self.assertEqual(status, 413)  # not 200: the device keeps the punches and can send them in parts
+		self.assertEqual(frappe.db.count("ZK Punch", {"device": SN}), 0)
+
+	def test_late_reply_does_not_reopen_a_failed_command(self):
+		device_request("cdata")
+		self.enable_device()
+		from zk_push import api
+
+		name = api.queue_command(SN, "REBOOT")
+		device_request("getrequest")
+		frappe.db.set_value("ZK Device Command", name, "status", "Failed")  # e.g. by the daily cleanup
+		device_request("devicecmd", "POST", f"ID={name}&Return=0&CMD=REBOOT\n")
+		self.assertEqual(frappe.db.get_value("ZK Device Command", name, "status"), "Failed")
+
+	def test_request_log_hides_device_secrets(self):
+		device_request("cdata")
+		self.enable_device(debug_logging=1)
+		body = "USER PIN=5\tName=Ali\tPri=0\tPasswd=1234\tCard=10648000\nFP PIN=5\tFID=0\tTMP=QUJDREVG\n"
+		device_request("cdata", "POST", body, table="OPERLOG")
+		logged = frappe.get_all(
+			"ZK Request Log", filters={"device": SN, "method": "POST"}, pluck="request_body", limit=1
+		)[0]
+		self.assertIn("Passwd=***\tCard=***", logged)
+		self.assertIn("TMP=***", logged)
+		self.assertNotIn("10648000", logged)
+		self.assertNotIn("1234", logged)
+
+	def test_pin_mapped_while_a_job_ran_is_picked_up(self):
+		device_request("cdata")
+		self.enable_device()
+		device_request("cdata", "POST", "9001\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG")
+		processing.process_pending()
+		name = f"{SN}-9001-20261105080000"
+		self.assertEqual(frappe.db.get_value("ZK Punch", name, "status"), "Unmatched")
+		# Set without the Employee hook, as when the punch was held by a running job at the time.
+		frappe.db.set_value("Employee", self.employee, "attendance_device_id", "9001")
+		processing.process_pending()
+		self.assertEqual(frappe.db.get_value("ZK Punch", name, "status"), "Created")
 
 	def test_device_users_are_stored_and_shown_when_mapping(self):
 		from zk_push.zk_push.report.zk_unmatched_users.zk_unmatched_users import execute

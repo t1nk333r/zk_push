@@ -8,7 +8,9 @@ see zk_push.time_card for the rules. On top of what HRMS records:
   charged the missing punch.
 - A Present / Work From Home day without punches (marked by HR or approved by an Attendance
   Request) counts as the whole shift, a Half Day as half.
-- Half Day with leave: the leave half is neither Late nor Early.
+- Half Day with leave: the leave half is neither Late nor Early; the worked half is half the
+  shift, and less than that counts as Early. A Half Day without leave and with punches (HRMS marks
+  one below the shift's half-day threshold) keeps its Late / Early, like the device software.
 - With one Employee, a Monthly Salary and at most 31 days, the totals add a pay estimate.
 """
 
@@ -31,12 +33,18 @@ WORKED = ("Present", "Half Day", "Work From Home")
 DURATIONS = ("late", "early", "overtime", "work", "attended", "actual_attended")
 # The pay estimate is for one month: salary and GOSI are monthly amounts.
 PAY_MAX_DAYS = 31
+# Without an Employee every row is built in one request (employees x days).
+ALL_EMPLOYEES_MAX_DAYS = 62
 
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	if not (filters.from_date and filters.to_date):
 		frappe.throw(_("From Date and To Date are required"))
+	if not filters.employee and date_diff(filters.to_date, filters.from_date) + 1 > ALL_EMPLOYEES_MAX_DAYS:
+		frappe.throw(
+			_("Pick at most {0} days, or select an Employee for a longer period").format(ALL_EMPLOYEES_MAX_DAYS)
+		)
 	# The desk leaves out filters that are 0 or unticked, and always sends the defaults set in the
 	# .js, so a number that is not there means 0.
 	overtime_after = max(cint(filters.overtime_after), 0)
@@ -117,7 +125,9 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 	unpaid = r.leave_type in unpaid_leave
 
 	on_duty = off_duty = None
-	if shift:
+	# A shift that starts when it ends would be read as 24 hours.
+	bad_shift = shift and (not shift.start_time or not shift.end_time or shift.start_time == shift.end_time)
+	if shift and not bad_shift:
 		on_duty, off_duty = shift_bounds(r.attendance_date, shift.start_time, shift.end_time)
 
 	if bool(clock_in) != bool(clock_out) and status in (*WORKED, "Absent"):
@@ -142,7 +152,10 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 	if status in WORKED and not on_duty:
 		if clock_in and clock_out:
 			day.attended = minutes(clock_out - clock_in)
-		notice = notice or _("No shift: assign one to work out the figures")
+		notice = notice or (
+			_("Shift has no length: fix its start and end") if bad_shift
+			else _("No shift: assign one to work out the figures")
+		)  # fmt: skip
 	elif status in WORKED and not clock_in and not clock_out:
 		# No punches: marked by HR or approved by an Attendance Request. The shift counts as worked;
 		# for a Half Day half of it, the other half being leave (paid or not) or missed.
@@ -168,10 +181,12 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 			missing_punch=0 if approved else missing_punch,
 		)
 		if half_leave:
-			# HRMS does not record which half was leave: neither arriving after it nor leaving for
-			# it is Late / Early, and at most half the shift is Work.
-			day.late = day.early = 0
-			day.work = min(day.work, minutes(off_duty - on_duty) // 2)
+			# HRMS does not record which half was leave: neither arriving after it nor leaving for it
+			# is Late / Early. The worked half is half the shift; less than that counts as Early.
+			half = minutes(off_duty - on_duty) // 2
+			day.late = 0
+			day.work = min(day.work, half)
+			day.early = half - day.work
 			day.actual_attended = day.work + day.overtime
 			absent_days = 0.5 if unpaid else 0
 
@@ -206,6 +221,9 @@ def pay_cards(filters, rows, totals):
 		return []
 
 	hours_per_day = flt(filters.hours_per_day) or 8
+	amounts = (filters.monthly_salary, filters.gosi_wage, filters.gosi_percent, filters.basic_salary)
+	if hours_per_day < 0 or any(flt(v) < 0 for v in amounts):
+		return message(_("Salary, GOSI and hours cannot be negative"))
 	pay = estimate_pay(
 		flt(filters.monthly_salary),
 		absent_days=sum(r["absent_days"] for r in rows),

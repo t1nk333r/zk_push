@@ -142,6 +142,40 @@ class TestProtocol(unittest.TestCase):
 		self.assertIsNone(protocol.parse_endpoint("iclock"))
 		self.assertIsNone(protocol.parse_endpoint("app/employee"))
 		self.assertIsNone(protocol.parse_endpoint("iclock/a/b"))
+		self.assertIsNone(protocol.parse_endpoint("iclock/<script>"))
+		self.assertIsNone(protocol.parse_endpoint("iclock/" + "x" * 40))
+
+	def test_ip_allowed(self):
+		allowed = "10.0.0.0/24, 192.0.2.9\n2001:db8::/32 junk"
+		self.assertTrue(protocol.ip_allowed("10.0.0.200", allowed))
+		self.assertTrue(protocol.ip_allowed("192.0.2.9", allowed))
+		self.assertTrue(protocol.ip_allowed("2001:db8::1", allowed))
+		self.assertFalse(protocol.ip_allowed("10.0.1.1", allowed))
+		self.assertFalse(protocol.ip_allowed("not an ip", allowed))
+		self.assertFalse(protocol.ip_allowed(None, allowed))
+		self.assertTrue(protocol.ip_allowed("203.0.113.5", ""))
+		self.assertTrue(protocol.ip_allowed(None, None))
+		self.assertFalse(protocol.ip_allowed("203.0.113.5", "junk"))  # a typo must not open it to all
+
+	def test_mask_secrets(self):
+		body = "USER PIN=5\tName=Card Holder\tPasswd=1234\tCard=99\r\nFP PIN=5\tTMP=QUJD\n"
+		masked = protocol.mask_secrets(body)
+		self.assertEqual(masked, "USER PIN=5\tName=Card Holder\tPasswd=***\tCard=***\r\nFP PIN=5\tTMP=***\n")
+		self.assertEqual(protocol.mask_secrets(""), "")
+
+	def test_reupload_command_is_exact(self):
+		command = protocol.device_command("reupload", from_time="2026-10-01 00:00:00", to_time="2026-10-02 00:00:00")
+		self.assertTrue(protocol.is_reupload_command(command))
+		self.assertFalse(protocol.is_reupload_command(command + "\tPIN=1"))
+		self.assertFalse(protocol.is_reupload_command("DATA QUERY ATTLOG "))
+		self.assertFalse(protocol.is_reupload_command(None))
+
+	def test_parse_devicecmd_is_bounded(self):
+		body = "".join(f"ID={i}&Return=0&CMD=INFO\n" for i in range(150)) + "x\n" * 500
+		results = protocol.parse_devicecmd(body, limit=100)
+		self.assertEqual(len(results), 100)
+		results = protocol.parse_devicecmd("ID=1&Return=0&CMD=INFO\n" + "x\n" * 500)
+		self.assertEqual(len(results[0]["extra"]), protocol.MAX_RESULT_EXTRA_LINES)
 
 	def test_device_commands(self):
 		cmd = protocol.device_command

@@ -77,6 +77,8 @@ def device_summary(device: str) -> dict:
 	values = frappe.db.get_value(
 		"ZK Device", device, ["enabled", "last_seen", "debug_logging"], as_dict=True
 	)
+	if not values:
+		frappe.throw(frappe._("ZK Device {0} not found").format(device), frappe.DoesNotExistError)
 	counts = dict(
 		frappe.get_all(
 			"ZK Punch",

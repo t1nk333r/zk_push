@@ -13,6 +13,8 @@ frappe.listview_settings["ZK Punch"] = {
 		return [__(doc.status), ZK_PUNCH_INDICATORS[doc.status] || "gray", "status,=," + doc.status];
 	},
 	onload(listview) {
+		// The roles zk_push.api.retry_punches and the Unmatched Users report allow.
+		if (!frappe.user.has_role(["System Manager", "HR Manager"])) return;
 		listview.page.add_action_item(__("Retry Selected"), () => {
 			const names = listview.get_checked_items(true);
 			frappe.call({

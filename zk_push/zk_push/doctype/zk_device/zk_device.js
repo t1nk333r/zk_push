@@ -83,14 +83,18 @@ frappe.ui.form.on("ZK Device", {
 	},
 
 	show_summary(frm) {
+		// Refreshes can overlap (save, then reload_doc): only the latest answer is drawn.
+		const request = (frm.zk_summary_request = (frm.zk_summary_request || 0) + 1);
+		const device = frm.doc.name;
 		frappe.call({
 			method: "zk_push.api.device_summary",
-			args: { device: frm.doc.name },
+			args: { device },
 			callback(r) {
 				const s = r.message;
-				if (!s) return;
+				if (!s || request !== frm.zk_summary_request || frm.doc.name !== device) return;
 
 				frm.dashboard.clear_headline();
+				frm.dashboard.stats_area_row.empty();
 				const connection = !frm.doc.enabled
 					? [__("Disabled"), "gray"]
 					: s.online
@@ -119,7 +123,7 @@ frappe.ui.form.on("ZK Device", {
 					notes.push(
 						__("Last punch: {0} by user {1} ({2})", [
 							frappe.datetime.str_to_user(s.last_punch.punch_time),
-							s.last_punch.employee_name || s.last_punch.pin,
+							frappe.utils.escape_html(s.last_punch.employee_name || s.last_punch.pin),
 							__(s.last_punch.status),
 						])
 					);
