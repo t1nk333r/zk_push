@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.3.0 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.3.1 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,12 +6,17 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.3.0, migrate | install v0.3.0 |
+| What to do | update to v0.3.1, migrate | install v0.3.1 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.3.0 adds on the site:
-- since v0.2.0: the **ZK Time Card** report (Attendance like the ZKTeco Time Card, with Late,
+What v0.3.1 adds on the site:
+- since v0.3.0: checkins get **IN/OUT** from the key pressed on the device (new devices default to
+  *From Device Status*); the **Excel Time Card** button on ZK Time Card (one print-ready sheet per
+  employee); **Allowed IP Addresses** on ZK Device; uploads over 8 MB refused; passwords, card
+  numbers and fingerprint data masked in ZK Request Log; card numbers only for System / HR
+  Managers; the audit fixes; step **B6** so HRMS keeps making Attendance;
+- in v0.3.0: the **ZK Time Card** report (Attendance like the ZKTeco Time Card, with Late,
   Early, OT, Actual ATT, one-punch days flagged and an optional monthly pay estimate), linked from
   the ZK Push workspace; the common device commands in the ZK Device form's **Device Commands**
   menu (upload / re-upload punches for dates, and for System Managers: users, fingerprints, open
@@ -19,7 +24,12 @@ What v0.3.0 adds on the site:
 - from v0.2.0: the **ZK Device User** doctype (names typed on the device, shown in **ZK Unmatched
   Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
 
-A `bench migrate` is required (no schema change since v0.2.0).
+A `bench migrate` is required (new ZK Device field and a card-number permission).
+
+**One bench for both sites.** If test.nss.sa and nss.sa run on the same bench, they share
+`apps/zk_push`: updating it changes the code for both, and a restart restarts both. `migrate` is
+per site. While zk_push is not installed on nss.sa, nss.sa never loads it, so Part B does not
+touch production beyond the few seconds of the restart (B3).
 
 ---
 
@@ -37,7 +47,7 @@ A `bench migrate` is required (no schema change since v0.2.0).
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.3.0
+  git fetch --tags && git checkout v0.3.1
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
@@ -65,21 +75,29 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.3.0.**
+- [ ] **B2. Get v0.3.1.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.0 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.1 && cd ../..
     ```
+    (Works from an older tag too; `git pull` does not, as a checked-out tag is not a branch.)
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.3.0 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.0 .
+    git clone --branch v0.3.1 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.1 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.3.0 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.3.0` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.3.1 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.3.1` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
-  - Bench: `bench --site test.nss.sa migrate && bench restart`
+  - Bench: `bench --site test.nss.sa migrate`, then restart the web server and workers:
+    ```bash
+    sudo supervisorctl status                     # group names, usually frappe-bench-web / -workers
+    sudo supervisorctl restart frappe-bench-web:
+    sudo supervisorctl restart frappe-bench-workers:
+    ```
+    The web restart takes every site on the bench offline for a few seconds (do it at a quiet
+    time); devices resend what did not get through. Workers finish their current job first.
   - Docker: `docker compose exec backend bench --site test.nss.sa migrate`, then
     `docker compose restart backend queue-short queue-long scheduler`
   A restart is required: the web server keeps running the old code until then.
@@ -182,7 +200,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.3.0 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (then: git checkout v0.3.0 in it)
+    bench get-app --branch v0.3.1 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
     bench --site nss.sa install-app zk_push
     bench restart
     ```
