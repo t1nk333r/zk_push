@@ -10,13 +10,19 @@ from io import BytesIO
 
 import frappe
 from frappe import _
+from frappe.desk.query_report import get_report_doc
 from frappe.utils import formatdate, getdate
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from zk_push.time_card import hhmm
-from zk_push.zk_push.report.zk_time_card.zk_time_card import DURATIONS, execute
+from zk_push.zk_push.report.zk_time_card.zk_time_card import (
+	DURATIONS,
+	check_filters,
+	execute,
+)
 
 # (field, label, width). Durations are minutes from the report, shown as HH:MM.
 COLUMNS = (
@@ -47,18 +53,22 @@ LATE_FONT = Font(color="C00000")
 CENTER = Alignment(horizontal="center", vertical="center")
 # Characters Excel does not allow in a sheet name.
 SHEET_NAME_RE = re.compile(r"[\[\]:*?/\\]")
+# One sheet per employee, built in the web request: more than this times out.
+MAX_EMPLOYEES = 300
 
 
 @frappe.whitelist(methods=["POST"])
 def download(filters: str | dict):
-	# The report's roles; the rows themselves follow User Permissions (execute uses get_list).
-	if not frappe.get_cached_doc("Report", "ZK Time Card").is_permitted():
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	filters = frappe._dict(json.loads(filters) if isinstance(filters, str) else filters)
+	# The same checks as opening the report (roles, disabled, report access on Attendance); the
+	# rows themselves follow User Permissions (execute uses get_list).
+	get_report_doc("ZK Time Card")
+	filters = check_filters(json.loads(filters) if isinstance(filters, str) else filters)
 	content = build(filters)
 	name = "Time Card"
-	if filters.employee:
-		name += f" {filters.employee}"
+	# The filename goes into a header: ASCII only.
+	employee = re.sub(r"[^\w.-]+", " ", filters.employee or "", flags=re.ASCII).strip()
+	if employee:
+		name += f" {employee}"
 	frappe.response["filename"] = f"{name} {filters.from_date} to {filters.to_date}.xlsx"
 	frappe.response["filecontent"] = content
 	frappe.response["type"] = "binary"
@@ -67,7 +77,8 @@ def download(filters: str | dict):
 def build(filters) -> bytes:
 	# Minutes, so the totals can be added up here.
 	_columns, rows, _message, _chart, cards = execute({**filters, "in_minutes": 1})
-	pay = [c for c in cards if c.get("datatype") == "Currency"]
+	# The pay estimate, or the message saying why there is none.
+	pay = [c for c in cards if c.get("datatype") == "Currency" or c["label"] == _("Pay Estimate")]
 	date_format = frappe.db.get_default("date_format") or "dd-mm-yyyy"  # same codes in Excel
 
 	workbook = Workbook()
@@ -75,6 +86,12 @@ def build(filters) -> bytes:
 	by_employee = {}
 	for row in rows:
 		by_employee.setdefault(row["employee"], []).append(row)
+	if len(by_employee) > MAX_EMPLOYEES:
+		frappe.throw(
+			_("{0} employees are too many for one file (at most {1}): pick a Company or an Employee").format(
+				len(by_employee), MAX_EMPLOYEES
+			)
+		)
 	if not by_employee:
 		sheet = workbook.create_sheet(_("Time Card"))
 		sheet["A1"] = _("No attendance in this period.")
@@ -88,12 +105,35 @@ def build(filters) -> bytes:
 	return out.getvalue()
 
 
+def clean(value):
+	"""Text Excel accepts: no control characters."""
+	return ILLEGAL_CHARACTERS_RE.sub("", value) if isinstance(value, str) else value
+
+
+def put(sheet, row, col, value):
+	"""Write a value from the data. Text starting with = is kept as text, not run as a formula."""
+	cell = sheet.cell(row, col, clean(value))
+	if isinstance(cell.value, str) and cell.value.startswith("="):
+		cell.data_type = "s"
+	return cell
+
+
+def excel_cut(text, units):
+	"""text cut to `units` UTF-16 code units, which is how Excel counts a sheet name's length."""
+	while len(text.encode("utf-16-le")) // 2 > units:
+		text = text[:-1]
+	return text
+
+
 def sheet_name(row, used) -> str:
-	base = SHEET_NAME_RE.sub(" ", f"{row['employee_name'] or row['employee']}")[:28].strip() or "Employee"
+	text = clean(SHEET_NAME_RE.sub(" ", f"{row['employee_name'] or row['employee']}"))
+	# Excel refuses a name that starts or ends with an apostrophe, and "History" (reserved).
+	base = excel_cut(text, 28).strip().strip("'").strip() or "Employee"
+	used.add("history")
 	name, n = base, 1
 	while name.lower() in used:
 		n += 1
-		name = f"{base[:25]} {n}"
+		name = f"{excel_cut(base, 25).rstrip()} {n}"
 	used.add(name.lower())
 	return name
 
@@ -102,11 +142,11 @@ def write_sheet(sheet, rows, filters, date_format, pay):
 	last_col = get_column_letter(len(COLUMNS))
 	first = rows[0]
 
-	sheet["A1"] = first["company"] or ""
+	put(sheet, 1, 1, first["company"] or "")
 	sheet["A1"].font = Font(bold=True, size=13)
 	sheet["A2"] = _("Time Card")
 	sheet["A2"].font = Font(bold=True, size=16)
-	sheet["A3"] = _("Employee: {0} - {1}").format(first["employee"], first["employee_name"] or "")
+	put(sheet, 3, 1, _("Employee: {0} - {1}").format(first["employee"], first["employee_name"] or ""))
 	sheet["A4"] = _("Period: {0} to {1}").format(formatdate(filters.from_date), formatdate(filters.to_date))
 	for cell in ("A3", "A4"):
 		sheet[cell].font = Font(bold=True)
@@ -136,7 +176,7 @@ def write_sheet(sheet, rows, filters, date_format, pay):
 				value = value or ""
 			elif field in ("status", "day"):
 				value = _(value) if value else ""
-			cell = sheet.cell(r, col, value if value is not None else "")
+			cell = put(sheet, r, col, value if value is not None else "")
 			cell.border = BORDER
 			if field == "attendance_date":
 				cell.number_format = date_format
@@ -174,7 +214,12 @@ def write_sheet(sheet, rows, filters, date_format, pay):
 		sheet.cell(r, 3, sum(row["status"] in statuses for row in rows)).alignment = Alignment(horizontal="left")
 		r += 1
 
-	if pay:
+	if pay and pay[0].get("datatype") != "Currency":
+		# Asked for, but there is none: say why rather than leave it out.
+		r += 1
+		sheet.cell(r, 1, f"{_('Pay Estimate')}: {pay[0]['value']}").font = Font(italic=True, color="666666")
+		r += 1
+	elif pay:
 		r += 1
 		sheet.cell(r, 1, _("Pay Estimate")).font = Font(bold=True, size=12)
 		r += 1
@@ -205,4 +250,5 @@ def write_sheet(sheet, rows, filters, date_format, pay):
 	sheet.page_margins.left = sheet.page_margins.right = 0.4
 	sheet.page_margins.top = sheet.page_margins.bottom = 0.5
 	sheet.oddFooter.center.text = _("Page &P of &N")
-	sheet.oddFooter.right.text = first["employee"]
+	# & starts a header / footer code.
+	sheet.oddFooter.right.text = clean(first["employee"]).replace("&", "&&")

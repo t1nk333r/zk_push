@@ -2,7 +2,8 @@
 
 Read-only. Use the output to fill "Attendance Device ID" on ERPNext Employees.
 Usage: python export_device_users.py <device_ip> [output.csv] [--comm-key N]   (requires: pip install pyzk)
-Without output.csv the CSV is written to standard output.
+Without output.csv the CSV is written to standard output. The Comm Key can also come from the
+ZK_COMM_KEY environment variable. Needs backfill_from_device.py in the same folder.
 """
 
 import argparse
@@ -10,6 +11,7 @@ import csv
 import sys
 from collections import Counter
 
+from backfill_from_device import comm_key_arg, get_attendance
 from zk import ZK
 
 
@@ -17,7 +19,7 @@ def main():
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("device_ip")
 	parser.add_argument("output", nargs="?", help="CSV file (default: standard output)")
-	parser.add_argument("--comm-key", type=int, default=0, help="Device Comm Key (default 0)")
+	comm_key_arg(parser)
 	args = parser.parse_args()
 
 	conn = ZK(args.device_ip, port=4370, timeout=10, password=args.comm_key, ommit_ping=True).connect()
@@ -25,7 +27,7 @@ def main():
 		users = conn.get_users()
 		last_punch = {}
 		punches = Counter()
-		for att in conn.get_attendance():
+		for att in get_attendance(conn):
 			punches[att.user_id] += 1
 			if att.user_id not in last_punch or att.timestamp > last_punch[att.user_id]:
 				last_punch[att.user_id] = att.timestamp

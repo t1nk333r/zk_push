@@ -11,7 +11,9 @@ see zk_push.time_card for the rules. On top of what HRMS records:
 - Half Day with leave: the leave half is neither Late nor Early; the worked half is half the
   shift, and less than that counts as Early. A Half Day without leave and with punches (HRMS marks
   one below the shift's half-day threshold) keeps its Late / Early, like the device software.
-- With one Employee, a Monthly Salary and at most 31 days, the totals add a pay estimate.
+- With one Employee, a Monthly Salary and at most 31 days, the totals add a pay estimate. Leave
+  Without Pay is deducted in full, Partially Paid Leave by the part not paid. A date with several
+  shifts (several Attendance) deducts at most one day, shared by shift length.
 """
 
 import frappe
@@ -38,9 +40,7 @@ ALL_EMPLOYEES_MAX_DAYS = 62
 
 
 def execute(filters=None):
-	filters = frappe._dict(filters or {})
-	if not (filters.from_date and filters.to_date):
-		frappe.throw(_("From Date and To Date are required"))
+	filters = check_filters(filters)
 	if not filters.employee and date_diff(filters.to_date, filters.from_date) + 1 > ALL_EMPLOYEES_MAX_DAYS:
 		frappe.throw(
 			_("Pick at most {0} days, or select an Employee for a longer period").format(ALL_EMPLOYEES_MAX_DAYS)
@@ -69,7 +69,7 @@ def execute(filters=None):
 			],
 		)
 	}
-	unpaid_leave = set(frappe.get_all("Leave Type", filters={"is_lwp": 1}, pluck="name"))
+	unpaid_leave = unpaid_shares()
 
 	data, totals = [], Day()
 	for r in rows:
@@ -78,11 +78,66 @@ def execute(filters=None):
 			setattr(totals, field, getattr(totals, field) + getattr(day, field))
 			row[field] = show(getattr(day, field))
 		data.append(row)
+	share_absence_between_shifts(data, shifts)
 
 	cards = summary(data, totals, in_minutes)
 	if flt(filters.monthly_salary):
 		cards += pay_cards(filters, data, totals)
 	return columns(in_minutes), data, None, None, cards
+
+
+def check_filters(filters):
+	"""The filters as the report expects them: the download and REST callers can send anything."""
+	filters = frappe._dict(filters or {})
+	if not (filters.from_date and filters.to_date):
+		frappe.throw(_("From Date and To Date are required"))
+	for field in ("employee", "company"):
+		if filters.get(field) and not isinstance(filters[field], str):
+			frappe.throw(_("Pick one {0}").format(_(field.title())))
+	# getdate throws a ValidationError for text that is not a date.
+	filters.from_date, filters.to_date = getdate(filters.from_date), getdate(filters.to_date)
+	if filters.to_date < filters.from_date:
+		frappe.throw(_("To Date cannot be before From Date"))
+	return filters
+
+
+def unpaid_shares():
+	"""{leave type: part of the day not paid}: 1 for Leave Without Pay, 1 - the paid fraction for
+	Partially Paid Leave. Other leave is paid in full."""
+	shares = {}
+	for leave in frappe.get_all(
+		"Leave Type",
+		or_filters={"is_lwp": 1, "is_ppl": 1},
+		fields=["name", "is_lwp", "fraction_of_daily_salary_per_leave"],
+	):
+		paid = 0 if leave.is_lwp else min(max(flt(leave.fraction_of_daily_salary_per_leave), 0), 1)
+		if paid < 1:
+			shares[leave.name] = 1 - paid
+	return shares
+
+
+def shift_minutes(shift):
+	if not shift or shift.start_time is None or shift.end_time is None or shift.start_time == shift.end_time:
+		return 0
+	on, off = shift_bounds(getdate(), shift.start_time, shift.end_time)
+	return minutes(off - on)
+
+
+def share_absence_between_shifts(rows, shifts):
+	"""HRMS keeps one Attendance per shift, so a date with several shifts has several rows. Their
+	absence is shared by shift length (equally when a length is unknown): missing one shift of
+	two does not cost a whole day, and missing both costs one."""
+	by_day = {}
+	for row in rows:
+		by_day.setdefault((row["employee"], row["attendance_date"]), []).append(row)
+	for day_rows in by_day.values():
+		if len(day_rows) < 2:
+			continue
+		lengths = [shift_minutes(shifts.get(row["shift"])) for row in day_rows]
+		if not all(lengths):
+			lengths = [1] * len(day_rows)
+		for row, length in zip(day_rows, lengths, strict=True):
+			row["absent_days"] = round(row["absent_days"] * length / sum(lengths), 3)
 
 
 def attendance_rows(filters):
@@ -117,16 +172,20 @@ def attendance_rows(filters):
 
 def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 	"""The report row for one Attendance, and its figures. row["absent_days"] is what the pay
-	estimate deducts for the day (1, 0.5 or 0)."""
+	estimate deducts for the day (1, 0.5, 0 or a part for Partially Paid Leave). unpaid_leave is
+	{leave type: part of the day not paid}, see unpaid_shares."""
 	status, notice = r.status, ""
 	clock_in, clock_out = r.in_time, r.out_time
 	approved = bool(r.attendance_request)
 	half_leave = status == "Half Day" and r.leave_type
-	unpaid = r.leave_type in unpaid_leave
+	unpaid = unpaid_leave.get(r.leave_type, 0) if r.leave_type else 0
 
 	on_duty = off_duty = None
-	# A shift that starts when it ends would be read as 24 hours.
-	bad_shift = shift and (not shift.start_time or not shift.end_time or shift.start_time == shift.end_time)
+	# A shift that starts when it ends would be read as 24 hours. Midnight comes back as
+	# timedelta(0), which is falsy, so test for None.
+	bad_shift = shift and (
+		shift.start_time is None or shift.end_time is None or shift.start_time == shift.end_time
+	)
 	if shift and not bad_shift:
 		on_duty, off_duty = shift_bounds(r.attendance_date, shift.start_time, shift.end_time)
 
@@ -147,7 +206,9 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 	elif clock_in and clock_out and status == "Absent":
 		notice = _("Short hours: check the punches")
 
-	absent_days = {"Absent": 1, "On Leave": 1 if unpaid else 0}.get(status, 0)
+	absent_days = {"Absent": 1, "On Leave": unpaid}.get(status, 0)
+	if status == "Half Day":
+		absent_days = half_day_absence(r, half_leave, unpaid, punched=bool(clock_in or clock_out))
 	day = Day()
 	if status in WORKED and not on_duty:
 		if clock_in and clock_out:
@@ -162,12 +223,8 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 		full = minutes(off_duty - on_duty)
 		if status != "Half Day":
 			day.work = full
-		elif half_leave and r.half_day_status == "Absent":
-			# Leave for one half, nothing recorded for the other.
-			absent_days = 1 if unpaid else 0.5
-		else:
+		elif not (half_leave and r.half_day_status == "Absent"):
 			day.work = full // 2
-			absent_days = 0.5 if (unpaid or not half_leave) else 0
 		day.actual_attended = day.work
 	elif status in WORKED:
 		day = compute_day(
@@ -183,12 +240,16 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 		if half_leave:
 			# HRMS does not record which half was leave: neither arriving after it nor leaving for it
 			# is Late / Early. The worked half is half the shift; less than that counts as Early.
-			half = minutes(off_duty - on_duty) // 2
+			# An unapproved missing punch still costs missing_punch, as on a Present day.
+			full = minutes(off_duty - on_duty)
+			half = full // 2
+			one_punch = bool(clock_in) != bool(clock_out) and not approved
+			# compute_day already took the missing punch off Work; put it back before the cap.
+			attended = day.work + (min(missing_punch, full) if one_punch else 0)
 			day.late = 0
-			day.work = min(day.work, half)
+			day.work = max(0, min(attended, half) - (min(missing_punch, half) if one_punch else 0))
 			day.early = half - day.work
 			day.actual_attended = day.work + day.overtime
-			absent_days = 0.5 if unpaid else 0
 
 	row = {
 		"attendance": r.name,
@@ -207,6 +268,20 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 		"absent_days": absent_days,
 	}
 	return row, day
+
+
+def half_day_absence(r, half_leave, unpaid, punched):
+	"""What a Half Day deducts, whether or not it has a shift. unpaid is the part of a leave day
+	not paid (1 for Leave Without Pay, 0 for paid leave)."""
+	if punched:
+		# Worked one half; the other was leave. Without leave the punches' Late / Early stand for
+		# the missing time.
+		return 0.5 * unpaid if half_leave else 0
+	if half_leave and r.half_day_status == "Absent":
+		# Leave for one half, nothing recorded for the other.
+		return 0.5 + 0.5 * unpaid
+	# No punches: one half counted as worked; the other is the leave, or missed without leave.
+	return 0.5 * unpaid if half_leave else 0.5
 
 
 def pay_cards(filters, rows, totals):

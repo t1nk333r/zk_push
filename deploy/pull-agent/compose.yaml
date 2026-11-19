@@ -11,11 +11,10 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-UTC}  # log timestamps only; punch times come from the device as-is
+      ZK_COMM_KEY: ${COMM_KEY:-0}  # an environment variable, so ps and docker inspect's Cmd do not show it
     command:
       - "${DEVICE_IP:?set DEVICE_IP in .env}"
       - "${SITE_URL:?set SITE_URL in .env}"
-      - --comm-key
-      - "${COMM_KEY:-0}"
       - --interval
       - "${INTERVAL:-120}"
       - --since

@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from zk_push import protocol
 
@@ -162,6 +162,30 @@ class TestProtocol(unittest.TestCase):
 		masked = protocol.mask_secrets(body)
 		self.assertEqual(masked, "USER PIN=5\tName=Card Holder\tPasswd=***\tCard=***\r\nFP PIN=5\tTMP=***\n")
 		self.assertEqual(protocol.mask_secrets(""), "")
+		# Push 3.x field names, any letter case, and photos.
+		body = "user uid=1\tcardno=12345\tpin=1\tpassword=999\nbiodata pin=1\ttmp=QUJD\nBIOPHOTO PIN=1\tContent=/9j/4A"
+		self.assertEqual(
+			protocol.mask_secrets(body),
+			"user uid=1\tcardno=***\tpin=1\tpassword=***\nbiodata pin=1\ttmp=***\nBIOPHOTO PIN=1\tContent=***",
+		)
+
+	def test_time_suffix_is_not_shifted_into_status(self):
+		for line in ("1 2024-01-01 08:00:00.5 1 15 0", "1 2024-01-01 08:00:001\t0", "1\t2024-01-01 08:00:00+03:00\t1"):
+			self.assertIsNone(protocol.parse_attlog_line(line), line)
+		punch = protocol.parse_attlog_line("1 2024-01-01 08:00:00\t1\t15")
+		self.assertEqual((punch.status, punch.verify), (1, 15))
+
+	def test_implausible_punch_years(self):
+		self.assertIsNone(protocol.parse_attlog_line("1\t0001-01-01 08:00:00\t0"))
+		self.assertIsNone(protocol.parse_attlog_line("1\t1999-12-31 23:59:59\t0"))
+		later = (datetime.now() + timedelta(days=3)).strftime(protocol.TIME_FORMAT)
+		self.assertIsNone(protocol.parse_attlog_line(f"1\t{later}\t0"))
+		self.assertIsNotNone(protocol.parse_attlog_line("1\t2000-01-01 00:00:00\t0"))
+
+	def test_command_ids(self):
+		self.assertTrue(protocol.is_command_id("12"))
+		for value in ("²", "", None, "1" * 19, "-1", "1 "):
+			self.assertFalse(protocol.is_command_id(value), value)
 
 	def test_reupload_command_is_exact(self):
 		command = protocol.device_command("reupload", from_time="2026-10-01 00:00:00", to_time="2026-10-02 00:00:00")

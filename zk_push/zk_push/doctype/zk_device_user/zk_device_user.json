@@ -58,7 +58,7 @@
    "label": "Card Number",
    "read_only": 1,
    "permlevel": 1,
-   "description": "Only System Managers and HR Managers see it: a copied card number opens doors on access-control models."
+   "description": "Only System Managers and HR Managers can read ZK Device User, and only they see this: a copied card number opens doors on access-control models."
   },
   {
    "fieldname": "last_synced",
@@ -71,7 +71,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-18 12:00:00.000000",
+ "modified": "2026-11-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Device User",
@@ -91,11 +91,6 @@
    "read": 1,
    "report": 1,
    "role": "HR Manager"
-  },
-  {
-   "read": 1,
-   "report": 1,
-   "role": "HR User"
   },
   {
    "permlevel": 1,

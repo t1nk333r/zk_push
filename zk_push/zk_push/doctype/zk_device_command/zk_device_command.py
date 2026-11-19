@@ -7,9 +7,12 @@ from zk_push import protocol
 # What HR Managers may send, plus re-uploading punches for a time range; anything else (changing
 # or deleting data on the device) needs System Manager.
 SAFE_COMMANDS = ("CHECK", "INFO", "LOG", "REBOOT")
-# Status is only changed by the device exchange (via db.set_value). Read-only in the form is not
-# enforced on the server, so without this a REST update could set a finished REBOOT back to Pending.
-LOCKED_FIELDS = ("device", "command", "status")
+# Status and the result are only changed by the device exchange (via db.set_value). Read-only in the
+# form is not enforced on the server, so without this a REST update could set a finished REBOOT back
+# to Pending, or rewrite what the device reported.
+LOCKED_FIELDS = ("device", "command", "status", "sent_at", "completed_at", "return_code", "response")
+# Add / Update User carries the device user's password; only System Managers may read those commands.
+SECRET_MARKER = "Passwd="
 
 
 class ZKDeviceCommand(Document):
@@ -27,3 +30,21 @@ class ZKDeviceCommand(Document):
 		if not safe and "System Manager" not in frappe.get_roles():
 			frappe.throw(_("Only System Managers can send custom commands."))
 		self.status = "Pending"
+
+
+def _system_manager(user=None) -> bool:
+	user = user or frappe.session.user
+	return user == "Administrator" or "System Manager" in frappe.get_roles(user)
+
+
+def get_permission_query_conditions(user=None):
+	if _system_manager(user):
+		return ""
+	# A row filter, so a filter on the command (e.g. like '%Passwd=1%') cannot find them either.
+	return f"locate({frappe.db.escape(SECRET_MARKER)}, `tabZK Device Command`.`command`) = 0"
+
+
+def has_permission(doc, ptype=None, user=None):
+	if SECRET_MARKER in (doc.command or "") and not _system_manager(user):
+		return False
+	return None

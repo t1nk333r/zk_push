@@ -9,5 +9,6 @@ FROM ${BASE_IMAGE}
 COPY --chown=frappe:frappe . /home/frappe/frappe-bench/apps/zk_push
 RUN cd /home/frappe/frappe-bench \
 	&& rm -rf apps/zk_push/deploy apps/zk_push/tools apps/zk_push/.git \
-	&& env/bin/pip install --no-cache-dir -e apps/zk_push \
+	&& env/bin/pip install --no-cache-dir flit_core==3.12.0 \
+	&& env/bin/pip install --no-cache-dir --no-build-isolation -e apps/zk_push \
 	&& env/bin/python -c "import zk_push.iclock"

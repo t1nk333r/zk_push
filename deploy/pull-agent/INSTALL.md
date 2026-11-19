@@ -25,13 +25,15 @@ tar xzf zk-pull-agent-<version>-<arch>.tar.gz
 cd zk-pull-agent-<version>-<arch>
 docker load -i image.tar.gz
 cp .env.example .env        # set DEVICE_IP, SITE_URL, COMM_KEY
+chmod 600 .env              # it holds the Comm Key
 docker compose up -d
 docker compose logs -f
 ```
 
 With internet access you can skip the package: copy `compose.yaml` and `.env.example` from the
-repository, set `ZK_PULL_IMAGE=ghcr.io/t1nk333r/zk-pull-agent` and `ZK_PULL_TAG=latest` in `.env`,
-and `docker compose up -d` pulls the image (amd64 and arm64).
+repository, set `ZK_PULL_IMAGE=ghcr.io/t1nk333r/zk-pull-agent` and `ZK_PULL_TAG=<version>` (for
+example `0.3.2`) in `.env`, and `docker compose up -d` pulls the image (amd64 and arm64). `latest`
+is the newest release; `edge` is the unreleased main branch, not for production.
 
 It restarts on boot. To update: load the new image, copy your `.env` into the new folder (or keep
 using the old one), set `ZK_PULL_TAG`, then `docker compose up -d`. The state (which punches were
@@ -39,11 +41,11 @@ sent) is kept in the `<ZK_PULL_NAME>_state` volume, so keep `ZK_PULL_NAME` the s
 folder's agent first (`docker compose down` there) so two agents never pull the same device. For a
 second device, use a separate folder with a different `ZK_PULL_NAME`.
 
-Other tools in the image:
+Other tools in the image (they take the Comm Key from `.env` too):
 
 ```bash
-docker compose run --rm -T --entrypoint python zk-pull /app/backfill_from_device.py <ip> <site> --comm-key <n> --dry-run
-docker compose run --rm -T --entrypoint python zk-pull /app/export_device_users.py <ip> --comm-key <n> > users.csv
+docker compose run --rm -T --entrypoint python zk-pull /app/backfill_from_device.py <ip> <site> --dry-run
+docker compose run --rm -T --entrypoint python zk-pull /app/export_device_users.py <ip> > users.csv
 ```
 
 ## Python package (`zk-pull-agent-<version>-python.zip`), e.g. Windows
@@ -52,9 +54,15 @@ Needs Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
-python pull_from_device.py <device_ip> https://erp.example.com --comm-key <n> --since 2026
+export ZK_COMM_KEY=<n>      # Windows: set ZK_COMM_KEY=<n>
+python pull_from_device.py <device_ip> https://erp.example.com --since 2026
 ```
 
-On Windows, add a Task Scheduler task that runs every 5 minutes:
-`python C:\zk-pull\pull_from_device.py <device_ip> https://erp.example.com --comm-key <n> --since 2026 --once`
+`--comm-key <n>` works too, but anyone on the machine can see it in the process list; the
+`ZK_COMM_KEY` environment variable keeps it out of there.
+
+On Windows, set `ZK_COMM_KEY` as a user environment variable (System Properties → Environment
+Variables) for the account that runs the task, rather than putting the key in the task's command
+line, then add a Task Scheduler task that runs every 5 minutes:
+`python C:\zk-pull\pull_from_device.py <device_ip> https://erp.example.com --since 2026 --once`
 (`--once` exits 1 if the pull failed, so failures show in the task history.)

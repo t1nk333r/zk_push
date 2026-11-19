@@ -1,4 +1,7 @@
 // Copy to config.h (git-ignored) and fill in. The prototype has no setup page yet.
+// Everything here is compiled into the board's flash in plain text: anyone who can plug a USB cable
+// into the board can read the Wi-Fi password and the Comm Key (flash encryption is not enabled).
+// Give the board its own or a guest Wi-Fi network and mount it out of reach.
 #pragma once
 
 // Office Wi-Fi (2.4 GHz: the ESP32 has no 5 GHz radio).

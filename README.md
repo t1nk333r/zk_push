@@ -189,8 +189,12 @@ The machine needs outbound access to the site; nothing has to reach the device f
 
 ```bash
 pip install pyzk
-python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026
+ZK_COMM_KEY=1234 python tools/pull_from_device.py 192.168.1.201 https://erp.example.com --since 2026
 ```
+
+The Comm Key can also be given as `--comm-key 1234`, but then anyone on the machine can read it in
+the process list; the `ZK_COMM_KEY` environment variable keeps it out of there. The same goes for
+`backfill_from_device.py` and `export_device_users.py`.
 
 `--since` (a year, month or day: `2026`, `2026-03`, `2026-03-15`) means punches before it are never
 sent, on any run; leave it out to send the device's whole log once.
@@ -205,7 +209,15 @@ sends the history. The last sent punch time is kept in `tools/zk_pull_<ip>.json`
 
 Differences from push: punches arrive within `--interval` seconds (default 120) instead of
 instantly, the device shows as online only while the script runs, and device commands
-(Reboot, Request Device Info, ...) are not delivered. To keep it running on Linux:
+(Reboot, Request Device Info, ...) are not delivered. To keep it running on Linux, install pyzk
+in a virtual environment the service can read (a `pip install` as root is refused on current
+Debian/Ubuntu, and one as your own user is not visible to the service user):
+
+```bash
+sudo python3 -m venv /opt/zk_push/venv
+sudo /opt/zk_push/venv/bin/pip install --require-hashes -r /opt/zk_push/deploy/pull-agent/requirements.txt
+sudo install -m 600 /dev/null /etc/zk-pull.env && echo ZK_COMM_KEY=1234 | sudo tee /etc/zk-pull.env
+```
 
 ```ini
 # /etc/systemd/system/zk-pull.service
@@ -214,7 +226,9 @@ Description=ZK Push pull agent
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --comm-key 1234 --since 2026 --state /var/lib/zk-pull/state.json
+ExecStart=/opt/zk_push/venv/bin/python /opt/zk_push/tools/pull_from_device.py 192.168.1.201 https://erp.example.com --since 2026 --state /var/lib/zk-pull/state.json
+# The Comm Key (ZK_COMM_KEY=...), readable by root only.
+EnvironmentFile=/etc/zk-pull.env
 Restart=always
 User=nobody
 # Creates /var/lib/zk-pull, writable by the service user, for the state file.
@@ -225,7 +239,8 @@ WorkingDirectory=/opt/zk_push/tools
 WantedBy=multi-user.target
 ```
 
-On Windows, run it with `--once` from Task Scheduler every few minutes.
+On Windows, run it with `--once` from Task Scheduler every few minutes. The Docker and Python
+packages below bundle pyzk, so they skip the venv step.
 
 ## Map employees
 
@@ -233,15 +248,16 @@ Set **Employee → Attendance Device ID** to the person's user ID on the device,
 **ZK Unmatched Users → Map**, which does the same and processes their waiting punches.
 
 The report shows the **name typed on the device** next to each user ID, from **ZK Device User**
-(one row per device user). The pull agents (Python and ESP32) send the device's user list on their
-own; a push device sends a user when it is added or changed on the device.
+(one row per device user). The pull agents (Python and ESP32) send the device's user list on every
+run. A push device only uploads punches (the site asks it for attendance logs only), so for push
+devices the names come from `backfill_from_device.py` (it sends the user list too) or the CSV below.
 
 `tools/export_device_users.py` exports a device's users (ID, name, punch count, last punch) to
 CSV over the LAN to help with matching:
 
 ```bash
 pip install pyzk
-python tools/export_device_users.py 192.168.1.201 device_users.csv --comm-key 1234
+ZK_COMM_KEY=1234 python tools/export_device_users.py 192.168.1.201 device_users.csv
 ```
 
 Device user IDs must be **unique across all devices** (ERPNext has one Attendance Device ID per
@@ -261,7 +277,7 @@ python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --dry
 python tools/backfill_from_device.py 192.168.1.201 https://erp.example.com --since 2026
 ```
 
-If the device has a Comm Key, add `--comm-key <n>`.
+If the device has a Comm Key, set `ZK_COMM_KEY=<n>` (or add `--comm-key <n>`).
 
 Backfilled punches go through the same checks as pushed ones: with *Discard Instead of Skipping*
 on, punches older than *Ignore Punches Before* are dropped, not stored.
@@ -311,6 +327,15 @@ calculation (Attendance, late entry, early exit, working hours). On each **Shift
 | Determine Check-in and Check-out | *Alternating entries* is the safer choice (a wrong key press does not matter). *Strictly based on Log Type* uses the device keys, with Checkin Log Type *From Device Status* |
 
 Then assign employees to the shift (Shift Assignment, or Default Shift on the Employee).
+
+**Punches that arrive late.** HRMS moves *Last Sync of Checkin* forward by the clock, whether or
+not the punches are in, and marks everyone without checkins **Absent** once the shift is past. If
+punches for that day arrive afterwards (the device or pull agent was offline, a *Re-upload Punches
+for Dates*, a backfill), ZK Push still creates the checkins, but HRMS does not change an Attendance
+it has already made: it only skips those checkins and leaves a comment, and the day stays Absent
+(also on the ZK Time Card). After such a catch-up: cancel the Absent Attendance for those dates,
+untick *Skip Auto Attendance* on the affected Employee Checkins, then click **Mark Attendance** on
+the Shift Type (or wait for the hourly run).
 
 ### ZK Time Card report
 

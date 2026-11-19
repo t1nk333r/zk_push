@@ -1,0 +1,11 @@
+# Keeps the commit-SHA pins in the workflows and the pull agent's base image digest current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker
+    directory: /deploy/pull-agent
+    schedule:
+      interval: monthly

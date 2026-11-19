@@ -1,0 +1,28 @@
+# zk_push unit tests (protocol parsing, time card maths): plain Python, no bench needed.
+# Also called by pull-agent.yml, so a v* tag is not released unless they pass.
+# The Frappe integration tests (bench run-tests --app zk_push) still need a bench; run them on the
+# test site before a release.
+name: app-tests
+
+on:
+  push:
+    branches: [main]
+    paths: [zk_push/**, .github/workflows/app-tests.yml]
+  pull_request:
+    paths: [zk_push/**, .github/workflows/app-tests.yml]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Unit tests
+        run: python -m unittest -v zk_push.tests.test_protocol zk_push.tests.test_time_card

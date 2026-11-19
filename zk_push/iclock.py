@@ -10,6 +10,7 @@ import time
 import frappe
 from frappe.utils import add_to_date, get_datetime, now_datetime
 from frappe.website.page_renderers.base_renderer import BaseRenderer
+from redis.exceptions import RedisError
 from werkzeug.wrappers import Response
 
 from zk_push import processing, protocol
@@ -29,6 +30,8 @@ MAX_COMMAND_RESULTS = 100
 MAX_LOGGED_INVALID_LINES = 1000
 # Largest upload accepted. A full history of 100,000 punches is about 4 MB; devices split bigger ones.
 MAX_BODY_BYTES = 8 * 1024 * 1024
+# Uploads whose body is logged as text; others (ATTPHOTO, BIOPHOTO, ...) are photos or templates.
+TEXT_TABLES = ("ATTLOG", "OPERLOG")
 
 DEVICE_FIELDS = [
 	"name",
@@ -66,6 +69,7 @@ class _Exchange:
 		self.body = ""
 		self.error = None
 		self.punches = 0
+		self.refused = False  # address not allowed: nothing is read or stored for it
 		self._text = None
 
 	def respond(self, body, status=200):
@@ -114,6 +118,7 @@ def _handle(ex: _Exchange):
 	# The serial number is printed on the device, so it is no secret: when the device has a list of
 	# allowed addresses, a request from anywhere else changes nothing (not even Last Seen).
 	if not protocol.ip_allowed(_client_ip(request), device.allowed_ips):
+		ex.refused = True
 		return ex.respond("ERROR: address not allowed", 403)
 
 	_touch(device, request)
@@ -172,13 +177,20 @@ def _receive(ex: _Exchange) -> str:
 		frappe.db.set_value("ZK Device", device.name, "att_stamp", stamp, update_modified=False)
 
 	if punches:
-		processing.enqueue_processing()
+		try:
+			processing.enqueue_processing()
+		except RedisError:
+			# The punches are stored and the */5 job picks them up; refusing the upload would only
+			# make the device resend it until the queue is back.
+			frappe.log_error(title="ZK Push: could not queue punch processing")
 
 	# Acknowledge every line (including unreadable ones), otherwise the device resends forever.
 	return f"OK: {received + len(invalid)}"
 
 
 def _next_command(device) -> str | None:
+	# A door opening or log wipe queued while the device was offline must not run hours later.
+	processing.expire_commands(device.name)
 	# Locked until this request commits, so two overlapping polls never both send it (e.g. REBOOT twice).
 	command = frappe.db.sql(
 		"""select name, command from `tabZK Device Command`
@@ -207,7 +219,7 @@ def _next_command(device) -> str | None:
 
 def _command_results(device, body: str):
 	# One query for the device's commands named in the body (it could hold thousands of lines).
-	results = [r for r in protocol.parse_devicecmd(body, MAX_COMMAND_RESULTS) if r["id"].isdigit()]
+	results = [r for r in protocol.parse_devicecmd(body, MAX_COMMAND_RESULTS) if protocol.is_command_id(r["id"])]
 	ids = {int(r["id"]) for r in results}
 	# Only commands waiting for a reply: a late reply must not reopen one that was failed or cancelled.
 	own = set(
@@ -293,20 +305,22 @@ def _touch(device, request):
 def _log_request(ex: _Exchange):
 	"""Record the exchange when the device has Debug Logging on, or when something failed.
 
-	Rejections of disabled devices are not logged unless debugging, since a waiting device
-	retries every 30 seconds.
+	Rejections of disabled devices and of addresses not allowed are not logged unless debugging:
+	a waiting device retries every 30 seconds, and anyone who knows the serial could fill the log.
 	"""
 	device = ex.device
 	if not device:
 		return
-	failed = ex.status >= 500 or (ex.status >= 400 and device.enabled)
+	failed = ex.status >= 500 or (ex.status >= 400 and device.enabled and not ex.refused)
 	if not (device.debug_logging or failed):
 		return
 
 	try:
 		request = ex.request
-		# Not read again if the upload was refused for its size.
-		body = "" if ex.status == 413 else ex.text()
+		table = (request.args.get("table") or "").upper()
+		# Not read for a refused address or an oversized upload; photos and templates only by size.
+		skip_body = ex.refused or ex.status == 413 or (ex.endpoint == "cdata" and table not in TEXT_TABLES)
+		body = "" if skip_body else ex.text()
 		frappe.get_doc(
 			{
 				"doctype": "ZK Request Log",
@@ -318,7 +332,7 @@ def _log_request(ex: _Exchange):
 				"body_size": len(body) or request.content_length or 0,
 				"punches": ex.punches,
 				"response_status": ex.status,
-				"response_body": ex.body[:5000],
+				"response_body": protocol.mask_secrets(ex.body[:5000]),  # getrequest replies carry set_user commands
 				"ip": _client_ip(request),
 				"duration_ms": round((time.monotonic() - ex.started) * 1000, 1),
 				"error": ex.error,

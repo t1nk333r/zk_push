@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.3.1 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.3.2 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,12 +6,17 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.3.1, migrate | install v0.3.1 |
+| What to do | update to v0.3.2, migrate | install v0.3.2 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.3.1 adds on the site:
-- since v0.3.0: checkins get **IN/OUT** from the key pressed on the device (new devices default to
+What v0.3.2 adds on the site:
+- since v0.3.1: ZK Time Card figures for shifts that start or end at midnight; Half Day without
+  a shift, split shifts and Partially Paid Leave deducted correctly; safer Excel export (at most
+  300 employees per file); device commands expire if the device is offline (door / clear log
+  after 10 minutes, others after a day); HR User no longer reads ZK Device User; device passwords
+  in commands only for System Managers; new indexes; the 16-pass audit fixes;
+- in v0.3.1: checkins get **IN/OUT** from the key pressed on the device (new devices default to
   *From Device Status*); the **Excel Time Card** button on ZK Time Card (one print-ready sheet per
   employee); **Allowed IP Addresses** on ZK Device; uploads over 8 MB refused; passwords, card
   numbers and fingerprint data masked in ZK Request Log; card numbers only for System / HR
@@ -24,7 +29,8 @@ What v0.3.1 adds on the site:
 - from v0.2.0: the **ZK Device User** doctype (names typed on the device, shown in **ZK Unmatched
   Users** and its *Map* dialog), an index on ZK Device Command, and the audit fixes.
 
-A `bench migrate` is required (new ZK Device field and a card-number permission).
+A `bench migrate` is required (permission changes and new indexes; from v0.3.0 also a new ZK
+Device field).
 
 **One bench for both sites.** If test.nss.sa and nss.sa run on the same bench, they share
 `apps/zk_push`: updating it changes the code for both, and a restart restarts both. `migrate` is
@@ -47,14 +53,16 @@ touch production beyond the few seconds of the restart (B3).
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.3.1
+  git fetch --tags && git checkout v0.3.2
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
   ```bash
   cp deploy/esp32/firmware/include/config.example.h deploy/esp32/firmware/include/config.h
   ```
-  and fill in `WIFI_SSID`, `WIFI_PASSWORD`, `DEVICE_HOST`, `DEVICE_COMM_KEY`.
+  and fill in `WIFI_SSID`, `WIFI_PASSWORD`, `DEVICE_HOST`, `DEVICE_COMM_KEY`. These end up in the
+  board's flash in plain text (anyone with the board and a USB cable can read them), so give it its
+  own or a guest Wi-Fi network and mount it where people cannot reach it.
 - [ ] **A5. Root certificates.** Both sites use Let's Encrypt (chain `YE1 ← Root YE ← ISRG Root X2`).
   `SITE_ROOT_CA` in `config.h` must contain **ISRG Root X1, ISRG Root X2, Root YE and Root YR**
   (four `BEGIN CERTIFICATE` blocks):
@@ -75,20 +83,20 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.3.1.**
+- [ ] **B2. Get v0.3.2.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.1 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.2 && cd ../..
     ```
     (Works from an older tag too; `git pull` does not, as a checked-out tag is not a branch.)
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.3.1 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.1 .
+    git clone --branch v0.3.2 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.2 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.3.1 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.3.1` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.3.2 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.3.2` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
   - Bench: `bench --site test.nss.sa migrate`, then restart the web server and workers:
     ```bash
@@ -109,14 +117,20 @@ directory of the site's `compose.yaml`.
 - [ ] **B5. Check the desk.** Log in, search **ZK Device User**: the list opens (empty). Press
   **Ctrl + Shift + R** once so the browser drops its cached forms. Search **ZK Time Card**: the
   report opens (rows appear for employees with Attendance this month). If the **ZK Push**
-  workspace has no *ZK Time Card* link (someone edited the workspace on this site), run
-  `bench --site test.nss.sa reload-doc zk_push workspace zk_push` (Docker: prefix with
-  `docker compose exec backend`).
+  workspace has no *ZK Time Card* link (someone edited the workspace on this site), either add
+  the link in the workspace editor, or run
+  `bench --site test.nss.sa --force reload-doc zk_push workspace zk_push` (Docker: prefix with
+  `docker compose exec backend`). `--force` is needed (without it nothing happens) and it replaces
+  the site's own edits to that workspace.
 - [ ] **B6. Let HRMS calculate.** Open each **Shift Type** used by staff and tick **Enable Auto
   Attendance** (with *Process Attendance After*) and **Automatically update Last Sync of
   Checkin**. Without the second one HRMS never marks new days: zk_push delivers the checkins, HRMS
   makes the Attendance after each shift ends. Keep *Determine Check-in and Check-out* on
-  *Alternating entries*.
+  *Alternating entries*. HRMS marks a day **Absent** once its shift is past, even if the punches
+  have not arrived yet (device offline, a re-upload or backfill later); punches that come after
+  that do not change it. Then cancel that Absent Attendance, untick *Skip Auto Attendance* on those
+  Employee Checkins and click **Mark Attendance** on the Shift Type (README, "Punches that arrive
+  late").
 
 ---
 
@@ -200,7 +214,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.3.1 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
+    bench get-app --branch v0.3.2 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
     bench --site nss.sa install-app zk_push
     bench restart
     ```
@@ -247,8 +261,11 @@ directory of the site's `compose.yaml`.
 - Board unplugged or power cut: nothing is lost; it continues where it stopped.
 - Device log cleared or replaced: the board notices and resends from its `SINCE` date; the site
   ignores what it already has.
-- Changing Wi-Fi, site or `SINCE`: edit `config.h`, flash (C4: erase only when moving to another
-  site).
+- Changing Wi-Fi, site or a later `SINCE`: edit `config.h`, flash (C4: erase only when moving to
+  another site).
+- Moving `SINCE` **earlier** (to send older punches): edit `config.h`, then erase + flash (C4).
+  Without the erase the board resumes where it stopped, past the older punches, and never sends
+  them. The site ignores the punches it already has.
 
 ## Security note
 

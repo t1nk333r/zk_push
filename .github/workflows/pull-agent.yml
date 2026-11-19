@@ -1,5 +1,6 @@
-# Pull agent image: test and build on every change; publish to GHCR from main and v* tags;
-# attach the install packages (make pkg) to the GitHub release of a v* tag.
+# Pull agent image: test and build on every change; publish to GHCR from main (as edge) and v* tags
+# (as the version and latest); attach the install packages (make pkg) to the GitHub release of a
+# v* tag. Nothing is published unless the app's unit tests (app-tests.yml) pass.
 name: pull-agent
 
 on:
@@ -14,6 +15,7 @@ on:
       - zk_push/__init__.py
       - .dockerignore
       - .github/workflows/pull-agent.yml
+      - .github/workflows/app-tests.yml
   pull_request:
     paths:
       - deploy/pull-agent/**
@@ -32,13 +34,17 @@ env:
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 
 jobs:
+  tests:
+    uses: ./.github/workflows/app-tests.yml
+
   image:
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Read version
         id: version
@@ -51,10 +57,10 @@ jobs:
       - name: Smoke test (amd64)
         run: make -C deploy/pull-agent test
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
@@ -62,16 +68,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
 
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/pull-agent/Dockerfile
@@ -85,19 +92,19 @@ jobs:
 
   packages:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: image
+    needs: [tests, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
       - name: Build packages
         run: make -C deploy/pull-agent pkg
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: |
             dist/zk-pull-agent-*

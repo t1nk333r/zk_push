@@ -7,11 +7,16 @@ push would. Punches the site already has are ignored, so it is safe to run more 
 Usage (requires: pip install pyzk):
   python backfill_from_device.py <device_ip> <site_url> [--since 2026 | 2026-03-15] [--comm-key N] [--dry-run]
 
+The Comm Key can also come from the ZK_COMM_KEY environment variable, which keeps it out of process
+listings.
+
 The device must already exist and be enabled under ZK Device on the site (its serial number is
 read from the device).
 """
 
 import argparse
+import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,6 +25,51 @@ from datetime import datetime
 from zk import ZK
 
 CHUNK = 2000
+READ_ATTEMPTS = 3
+
+_decode_time = ZK._ZK__decode_time
+
+
+def _decode_time_or_none(self, t):
+	# The device packs dates with 31 days in every month, so a corrupt record can decode to 31
+	# February. pyzk raises on it and the whole log would never be read; skip that record instead.
+	try:
+		return _decode_time(self, t)
+	except ValueError:
+		return None
+
+
+ZK._ZK__decode_time = _decode_time_or_none
+
+
+def get_attendance(conn):
+	"""The device's attendance records, without records whose date cannot exist.
+
+	pyzk works out the record format from a record count it reads before the log itself. A punch in
+	between makes it parse the log in the wrong format, so the count is read again afterwards and
+	the read repeated if it changed."""
+	for _attempt in range(READ_ATTEMPTS):
+		records = conn.get_attendance()
+		count = conn.records
+		conn.read_sizes()
+		if conn.records == count:
+			break
+	else:
+		raise RuntimeError("the device log kept changing while it was read; try again")
+	good = [r for r in records if r.timestamp]
+	if len(good) < len(records):
+		print(f"Skipped {len(records) - len(good)} record(s) with an impossible date", file=sys.stderr, flush=True)
+	return good
+
+
+def comm_key_arg(parser):
+	"""--comm-key, defaulting to the ZK_COMM_KEY environment variable (not visible in process lists)."""
+	parser.add_argument(
+		"--comm-key",
+		type=int,
+		default=int(os.environ.get("ZK_COMM_KEY") or 0),
+		help="Device Comm Key (default: ZK_COMM_KEY environment variable, else 0)",
+	)
 
 
 def read_device(ip, comm_key):
@@ -27,7 +77,7 @@ def read_device(ip, comm_key):
 	conn = ZK(ip, port=4370, timeout=30, password=comm_key, ommit_ping=True).connect()
 	try:
 		serial = conn.get_serialnumber()
-		records = conn.get_attendance()
+		records = get_attendance(conn)
 		users = conn.get_users()
 	finally:
 		conn.disconnect()
@@ -111,7 +161,7 @@ def main():
 	parser.add_argument(
 		"--since", type=since_date, help="Only punches on or after this year or date (YYYY, YYYY-MM or YYYY-MM-DD)"
 	)
-	parser.add_argument("--comm-key", type=int, default=0, help="Device Comm Key (default 0)")
+	comm_key_arg(parser)
 	parser.add_argument("--dry-run", action="store_true", help="Read and summarise, do not post")
 	args = parser.parse_args()
 

@@ -30,6 +30,14 @@ def attendance(employee, date, status, in_time=None, out_time=None, **values):
 	return doc
 
 
+def shift_type(name, start, end):
+	if not frappe.db.exists("Shift Type", name):
+		frappe.get_doc({"doctype": "Shift Type", "name": name, "start_time": start, "end_time": end}).insert(
+			ignore_permissions=True
+		)
+	return name
+
+
 def report(**filters):
 	_columns, data, _, _, cards = execute(
 		{"from_date": "2026-10-01", "to_date": "2026-10-31", "overtime_after": 60, "missing_punch": 60, **filters}
@@ -118,6 +126,57 @@ class TestTimeCardReport(FrappeTestCase):
 		self.assertEqual(rows["2026-10-14"]["notice"], "Shift has no length: fix its start and end")
 		self.assertEqual(rows["2026-10-14"]["work"], "")
 
+	def test_half_day_with_one_punch(self):
+		# Leave for one half, and the worked half has one punch: the missing punch is still charged.
+		attendance(self.employee, "2026-10-15", "Half Day", None, "17:00", leave_type="Casual Leave")
+		rows, _ = report(employee=self.employee, in_minutes=1)
+		day = rows["2026-10-15"]
+		self.assertEqual((day["late"], day["early"], day["work"]), (None, 60, 210))
+
+	def test_half_day_without_a_shift(self):
+		# A half-day Leave Application makes its Attendance with no shift: still deducted. HRMS marks
+		# the other half Absent until punches show up.
+		attendance(self.employee, "2026-10-19", "Half Day", shift=None, leave_type="Leave Without Pay")
+		attendance(self.employee, "2026-10-20", "Half Day", shift=None)
+		rows, _ = report(employee=self.employee)
+		self.assertEqual((rows["2026-10-19"]["absent_days"], rows["2026-10-20"]["absent_days"]), (1, 0.5))
+
+	def test_partially_paid_leave(self):
+		leave = "_ZK Time Card Sick 75"
+		if not frappe.db.exists("Leave Type", leave):
+			frappe.get_doc(
+				{"doctype": "Leave Type", "leave_type_name": leave, "is_ppl": 1, "fraction_of_daily_salary_per_leave": 0.75}
+			).insert(ignore_permissions=True)
+		attendance(self.employee, "2026-10-21", "On Leave", shift=None, leave_type=leave)
+		attendance(self.employee, "2026-10-22", "Half Day", shift=None, leave_type=leave)
+		rows, _ = report(employee=self.employee)
+		# Half a day of 75% leave and an absent half: 0.5 x 0.25 + 0.5.
+		self.assertEqual((rows["2026-10-21"]["absent_days"], rows["2026-10-22"]["absent_days"]), (0.25, 0.625))
+
+	def test_midnight_shift(self):
+		# 00:00 comes back from the database as timedelta(0), which is falsy.
+		evening = shift_type("_ZK Time Card Evening", "16:00:00", "00:00:00")
+		attendance(self.employee, "2026-10-23", "Present", "16:20", "23:30", shift=evening)
+		rows, _ = report(employee=self.employee, in_minutes=1)
+		day = rows["2026-10-23"]
+		self.assertEqual((day["on_duty"], day["off_duty"], day["late"], day["early"]), ("16:00", "00:00", 20, 30))
+
+	def test_two_shifts_on_one_day(self):
+		# One Attendance per shift: missing both is one day, missing the short one a part of a day.
+		late = shift_type("_ZK Time Card Late Shift", "18:00:00", "22:00:00")
+		attendance(self.employee, "2026-10-26", "Absent")
+		attendance(self.employee, "2026-10-26", "Absent", shift=late)
+		attendance(self.employee, "2026-10-27", "Present", "08:00", "17:00")
+		attendance(self.employee, "2026-10-27", "Absent", shift=late)
+		_, data, *_ = execute(
+			{"from_date": "2026-10-26", "to_date": "2026-10-27", "employee": self.employee, "missing_punch": 60}
+		)
+		absent = {}
+		for row in data:
+			absent[str(row["attendance_date"])] = absent.get(str(row["attendance_date"]), 0) + row["absent_days"]
+		self.assertAlmostEqual(absent["2026-10-26"], 1, places=2)
+		self.assertAlmostEqual(absent["2026-10-27"], 240 / 780, places=2)
+
 	def test_input_checks(self):
 		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")
 		_, cards = report(employee=self.employee, monthly_salary=7000, gosi_percent=-5)
@@ -125,6 +184,12 @@ class TestTimeCardReport(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "at most 62 days"):
 			report(to_date="2027-01-31")
 		report(employee=self.employee, to_date="2027-01-31")  # one employee: any period
+		with self.assertRaisesRegex(frappe.ValidationError, "Pick one Employee"):
+			report(employee=["is", "set"], to_date="2027-01-31")
+		with self.assertRaisesRegex(frappe.ValidationError, "not a valid date"):
+			report(from_date="not a date")
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be before"):
+			report(from_date="2026-10-31", to_date="2026-10-01")
 
 	def test_excel_time_card(self):
 		from io import BytesIO
@@ -156,6 +221,37 @@ class TestTimeCardReport(FrappeTestCase):
 		self.assertIn("Estimated Net Pay", labels)
 		self.assertEqual(sheet.print_title_rows, "$6:$6")
 		self.assertEqual(sheet.page_setup.orientation, "landscape")
+
+		# Asked for a pay estimate that cannot be worked out: the sheet says why.
+		content = build(frappe._dict({**filters, "employee": self.employee, "monthly_salary": 7000, "to_date": "2026-11-30"}))
+		labels = [row[0].value for row in load_workbook(BytesIO(content)).active.iter_rows()]
+		self.assertIn("Pay Estimate: Pick at most 31 days (one pay month)", labels)
+
+	def test_excel_cell_and_sheet_rules(self):
+		from unittest.mock import patch
+
+		from openpyxl import Workbook
+
+		from zk_push.zk_push.report.zk_time_card import time_card_excel
+		from zk_push.zk_push.report.zk_time_card.time_card_excel import (
+			build,
+			put,
+			sheet_name,
+		)
+
+		used = set()
+		self.assertEqual(sheet_name({"employee_name": "'Ali'", "employee": "E1"}, used), "Ali")
+		self.assertEqual(sheet_name({"employee_name": "History", "employee": "E2"}, used), "History 2")
+		self.assertEqual(sheet_name({"employee_name": "A\x0bB", "employee": "E3"}, used), "AB")
+		self.assertLessEqual(len(sheet_name({"employee_name": "😀" * 30, "employee": "E4"}, used).encode("utf-16-le")), 62)
+		sheet = Workbook().active
+		self.assertEqual(put(sheet, 1, 1, '=HYPERLINK("http://x")').data_type, "s")  # text, not a formula
+		self.assertEqual(put(sheet, 2, 1, "Acme\x07 Co").value, "Acme Co")
+
+		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")
+		attendance(self.other, "2026-10-05", "Absent")
+		with patch.object(time_card_excel, "MAX_EMPLOYEES", 1), self.assertRaisesRegex(frappe.ValidationError, "too many"):
+			build(frappe._dict({"from_date": "2026-10-01", "to_date": "2026-10-31"}))
 
 	def test_totals_only_count_what_the_user_may_see(self):
 		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")

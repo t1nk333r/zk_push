@@ -8,7 +8,8 @@ works the same; device commands (Reboot, Request Info, ...) do not, since the de
 Usage (requires: pip install pyzk):
   python pull_from_device.py <device_ip> <site_url> [--since 2026] [--interval 120] [--comm-key N] [--state FILE] [--once]
 
-The ZK Device must exist and be enabled on the site. On the first run every punch on the device is
+The Comm Key can also be set in the ZK_COMM_KEY environment variable instead of --comm-key, which
+keeps it out of process listings. The ZK Device must exist and be enabled on the site. On the first run every punch on the device is
 sent, or only those from --since on (a year, month or day, e.g. --since 2026); after that only new
 ones. Punches before --since are never sent, on any run. --state keeps
 the last punch time and the punches sent in the day before it, so a punch stamped in the same
@@ -31,6 +32,7 @@ from backfill_from_device import (
 	accepted,
 	attlog_lines,
 	cdata_request,
+	comm_key_arg,
 	post,
 	post_users,
 	read_device,
@@ -138,7 +140,7 @@ def main():
 		"--since", type=since_date, help="Never send punches before this year or date (YYYY, YYYY-MM or YYYY-MM-DD)"
 	)
 	parser.add_argument("--interval", type=int, default=120, help="Seconds between pulls (default 120)")
-	parser.add_argument("--comm-key", type=int, default=0, help="Device Comm Key (default 0)")
+	comm_key_arg(parser)
 	parser.add_argument("--state", help="State file (default: zk_pull_<device_ip>.json next to this script)")
 	parser.add_argument("--once", action="store_true", help="Pull once and exit (for cron)")
 	args = parser.parse_args()

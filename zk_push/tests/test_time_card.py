@@ -83,7 +83,9 @@ class TestTimeCard(unittest.TestCase):
 
 	def test_clock_out_before_clock_in_counts_as_missing(self):
 		d = compute_day(ON, OFF, at(17, 0), at(8, 0), missing_punch=60)
-		self.assertEqual((d.late, d.early, d.work), (540, 60, 0))
+		self.assertEqual((d.late, d.early, d.work), (540, 0, 0))  # Late + Early never past the shift
+		d = compute_day(ON, OFF, at(16, 30), at(8, 0), missing_punch=60)
+		self.assertEqual((d.late, d.early), (510, 30))
 
 	def test_place_single_punch(self):
 		self.assertEqual(place_single_punch(at(7, 50), ON, OFF), (at(7, 50), None))

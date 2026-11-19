@@ -18,7 +18,7 @@ import html
 import ipaddress
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 
 SN_RE = re.compile(r"[A-Za-z0-9]{6,32}")
@@ -33,15 +33,23 @@ PARTIAL_ENTITY_RE = re.compile(r"&[#\w]*$")
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 # Device bodies are split on CR/LF only; str.splitlines() also splits on \x0b, \x1c, \x85, ...
 LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
-# Fallback for firmwares that send spaces instead of tabs.
+# Fallback for firmwares that send spaces instead of tabs. The time must end at the seconds: a
+# suffix ("08:00:00.5", "08:00:001") would otherwise shift status and verify by one field.
 LOOSE_LINE_RE = re.compile(
-	r"^\s*(?P<pin>\S+)\s+(?P<time>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?P<rest>.*)$", re.ASCII
+	r"^\s*(?P<pin>\S+)\s+(?P<time>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?P<rest>(?:\s.*)?)$", re.ASCII
 )
+# Punch times outside this window are corrupt records (or forged): the database cannot store years
+# before 1000, and a device clock is never days ahead.
+MIN_PUNCH_YEAR = 2000
+MAX_PUNCH_AHEAD = timedelta(days=1)
 ENDPOINT_RE = re.compile(r"[a-z0-9_-]{1,32}")
 _STAMP_TEXT = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
 REUPLOAD_RE = re.compile(rf"DATA QUERY ATTLOG StartTime={_STAMP_TEXT}\tEndTime={_STAMP_TEXT}")
-# Passwd=, Card= (USER lines) and TMP= (fingerprint / face templates) up to the next tab or line end.
-SECRET_RE = re.compile(r"\b(Passwd|Password|Card|TMP|Tmp)=[^\t\r\n]*")
+# Passwd=, Card= (USER lines), TMP= (fingerprint / face templates) and Content= (photos) up to the
+# next tab or line end, in any letter case (push 3.x firmware sends password=, cardno=, tmp=).
+SECRET_RE = re.compile(r"\b(passw(?:or)?d|card(?:no)?|tmp|template|content)=[^\t\r\n]*", re.IGNORECASE)
+# Command IDs are ZK Device Command names; ASCII and short enough for int() (isdigit() accepts "²").
+COMMAND_ID_RE = re.compile(r"[0-9]{1,18}")
 
 # Device "status" (state key pressed on the terminal) -> ERPNext log type.
 # 0 Check-In, 1 Check-Out, 2 Break-Out, 3 Break-In, 4 OT-In, 5 OT-Out
@@ -112,6 +120,8 @@ def parse_attlog_line(line: str) -> Punch | None:
 		try:
 			time = datetime.strptime(re.sub(r"\s+", " ", time_str), TIME_FORMAT)
 		except ValueError:
+			continue
+		if time.year < MIN_PUNCH_YEAR or time > datetime.now() + MAX_PUNCH_AHEAD:
 			continue
 
 		return Punch(
@@ -315,6 +325,10 @@ def parse_endpoint(path: str) -> str | None:
 	endpoint = parts[1].lower().removesuffix(".aspx")
 	# It ends up in the request log and Error Log titles.
 	return endpoint if ENDPOINT_RE.fullmatch(endpoint) else None
+
+
+def is_command_id(value: str | None) -> bool:
+	return bool(value) and COMMAND_ID_RE.fullmatch(value) is not None
 
 
 def is_reupload_command(command: str) -> bool:

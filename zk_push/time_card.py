@@ -6,7 +6,7 @@ All figures are whole minutes. Durations are worked out from the punches with th
 then truncated, as on the device software's report (08:18:30 gives Late 18 and Work 08:41):
 - Late: clock in after on duty + grace, counted from on duty (08:18 with 15 min grace = 18).
 - Early: clock out before off duty - grace, counted to off duty.
-  Neither is more than the shift.
+  Together they are never more than the shift.
 - OT: time after off duty (or after the clock in, if that was later), counted in full once it
   reaches overtime_after minutes (with 60: 17:45 gives no OT, 18:18 gives 78). Arriving early
   is not overtime.
@@ -102,6 +102,9 @@ def compute_day(
 		day.work = max(0, day.work - missing_punch)
 	day.attended = minutes(end - start)
 	day.actual_attended = day.work + day.overtime
+	# A clock in after off duty with no usable clock out is Late for the whole shift; the missing
+	# punch must not add Early on top.
+	day.early = min(day.early, shift - day.late)
 	return day
 
 

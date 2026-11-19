@@ -4,7 +4,9 @@
 #   docker build -f deploy/pull-agent/Dockerfile -t zk-pull-agent .
 #
 # Runs tools/pull_from_device.py; the state file lives in the /data volume.
-FROM python:3.12-slim-bookworm
+# Pinned by digest so the GHCR image and the release tarballs start from the same base; Dependabot
+# (.github/dependabot.yml) proposes updates.
+FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="zk-pull-agent" \
@@ -15,7 +17,7 @@ LABEL org.opencontainers.image.title="zk-pull-agent" \
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 COPY deploy/pull-agent/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt \
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.txt \
 	&& useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin agent \
 	&& mkdir /data && chown agent /data
 

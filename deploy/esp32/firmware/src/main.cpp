@@ -21,6 +21,8 @@ static bool ensure_wifi() {
 	if (WiFi.status() == WL_CONNECTED) return true;
 	if (!started) {
 		Serial.printf("wifi: connecting to %s\n", WIFI_SSID);
+		// The credentials come from config.h; don't let the Wi-Fi stack keep a second copy in NVS.
+		WiFi.persistent(false);
 		WiFi.mode(WIFI_STA);
 		// No modem sleep: with it, some routers deliver packets to the board late or never (the
 		// device's replies time out). The board is mains powered, so the saving does not matter.
