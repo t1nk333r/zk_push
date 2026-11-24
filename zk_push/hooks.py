@@ -14,9 +14,11 @@ page_renderer = ["zk_push.iclock.IclockRenderer"]
 after_migrate = [
 	"zk_push.zk_push.doctype.zk_punch.zk_punch.on_doctype_update",
 	"zk_push.zk_push.doctype.zk_device_user.zk_device_user.on_doctype_update",
+	"zk_push.attendance.setup_fields",
 ]
 
 # Remove the scheduled jobs, which would otherwise keep failing against the dropped tables.
+after_install = "zk_push.attendance.setup_fields"
 before_uninstall = "zk_push.install.before_uninstall"
 
 # Commands that set a device user's password are for System Managers only (HR Managers may read
@@ -31,7 +33,14 @@ has_permission = {
 doc_events = {
 	"Employee": {
 		"on_update": "zk_push.processing.on_employee_update",
-	}
+	},
+	"Attendance": {
+		"validate": "zk_push.attendance.validate",
+		"on_submit": "zk_push.attendance.on_submit",
+	},
+	"Attendance Request": {
+		"on_submit": "zk_push.attendance.on_attendance_request_submit",
+	},
 }
 
 # Safety net: pick up punches whose background job was lost (e.g. worker restart).

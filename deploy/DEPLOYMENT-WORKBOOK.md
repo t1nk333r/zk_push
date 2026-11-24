@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.3.2 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.3.3 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,12 +6,15 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.3.2, migrate | install v0.3.2 |
+| What to do | update to v0.3.3, migrate | install v0.3.3 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.3.2 adds on the site:
-- since v0.3.1: ZK Time Card figures for shifts that start or end at midnight; Half Day without
+What v0.3.3 adds on the site:
+- since v0.3.2: **One Punch** on Attendance: a day with only a clock in or only a clock out is
+  flagged, with a comment, when HRMS marks it, so HR can filter the Attendance list on it and check
+  each day (an approved Attendance Request clears it); days already marked are flagged by the migrate;
+- in v0.3.2: ZK Time Card figures for shifts that start or end at midnight; Half Day without
   a shift, split shifts and Partially Paid Leave deducted correctly; safer Excel export (at most
   300 employees per file); device commands expire if the device is offline (door / clear log
   after 10 minutes, others after a day); HR User no longer reads ZK Device User; device passwords
@@ -53,7 +56,7 @@ touch production beyond the few seconds of the restart (B3).
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.3.2
+  git fetch --tags && git checkout v0.3.3
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
@@ -83,20 +86,20 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.3.2.**
+- [ ] **B2. Get v0.3.3.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.2 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.3 && cd ../..
     ```
     (Works from an older tag too; `git pull` does not, as a checked-out tag is not a branch.)
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.3.2 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.2 .
+    git clone --branch v0.3.3 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.3 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.3.2 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.3.2` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.3.3 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.3.3` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
   - Bench: `bench --site test.nss.sa migrate`, then restart the web server and workers:
     ```bash
@@ -214,7 +217,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.3.2 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
+    bench get-app --branch v0.3.3 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
     bench --site nss.sa install-app zk_push
     bench restart
     ```

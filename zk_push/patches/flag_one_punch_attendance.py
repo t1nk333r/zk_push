@@ -1,0 +1,14 @@
+import frappe
+
+from zk_push.attendance import FIELD, setup_fields
+
+
+def execute():
+	"""Flag the One Punch days already marked."""
+	setup_fields()
+	frappe.db.sql(
+		f"""update `tabAttendance` set `{FIELD}` = 1
+		where docstatus = 1 and status != 'On Leave'
+		and (attendance_request is null or attendance_request = '')
+		and ((in_time is null) != (out_time is null))"""
+	)

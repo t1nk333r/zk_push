@@ -1,9 +1,10 @@
 import frappe
 
-from zk_push import processing
+from zk_push import attendance, processing
 
 
 def before_uninstall():
+	attendance.remove_fields()
 	frappe.db.delete("Scheduled Job Type", {"method": ("like", "zk_push.%")})
 	try:
 		from frappe.utils.background_jobs import get_job

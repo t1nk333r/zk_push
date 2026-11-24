@@ -337,6 +337,12 @@ it has already made: it only skips those checkins and leaves a comment, and the 
 untick *Skip Auto Attendance* on the affected Employee Checkins, then click **Mark Attendance** on
 the Shift Type (or wait for the hourly run).
 
+**One Punch.** A day with only a clock in, or only a clock out, is marked **Absent** by HRMS (no
+working hours). ZK Push ticks **One Punch** on that Attendance and comments *"One punch: no clock
+out. HR needs to check this day."* HR filters the Attendance list on **One Punch = Yes** and checks
+each day: if the employee worked, approve an **Attendance Request** for it (the day turns Present
+and the flag clears); otherwise leave it. Days marked before the update are flagged by its migrate.
+
 ### ZK Time Card report
 
 Attendance laid out like the ZKTeco software's Time Card, one row per day: day, status, notice,
