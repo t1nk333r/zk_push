@@ -31,6 +31,9 @@ frappe.pages["zk-push-about"].on_page_load = function (wrapper) {
 				"Open a ZK Device and use Device Commands: info, upload or re-upload punches, reboot; and for System Managers: add / update / delete a user, enroll a fingerprint, open the door, clear the log. Results are in ZK Device Command."
 			)}</p>
 
+			${frappe.user.has_role("System Manager") ? `<h5>${__("Updates")}</h5>
+			<p><a href="/app/zk-push-update">${__("ZK Push Update")}</a>: ${__("check for a new release and upgrade from the site.")}</p>` : ""}
+
 			<p style="margin-top: var(--margin-lg);">
 				<a href="https://github.com/t1nk333r/zk_push" target="_blank" rel="noopener noreferrer">github.com/t1nk333r/zk_push</a><br>
 				Copyright © 2026 t1nk333r · MIT
