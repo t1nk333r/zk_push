@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
 # ZK Push upgrade agent: does the upgrades asked for on the site (page ZK Push Update).
 #
 # Runs every minute from the bench user's crontab (see README.md in this folder). On each run it marks

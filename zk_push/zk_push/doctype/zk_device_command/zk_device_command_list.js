@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 const ZK_COMMAND_INDICATORS = { Pending: "orange", Sent: "blue", Done: "green", Failed: "red", Cancelled: "gray" };
 
 frappe.listview_settings["ZK Device Command"] = {

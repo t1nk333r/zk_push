@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 frappe.listview_settings["ZK Request Log"] = {
 	add_fields: ["response_status"],
 	get_indicator(doc) {

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // ZKTeco TCP protocol: the pure parts (no I/O, no Arduino), so they can be unit-tested on a PC.
 // A port of ../../zk_reference.py; see the protocol summary there.
 #pragma once

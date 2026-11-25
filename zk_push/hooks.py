@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 app_name = "zk_push"
 app_title = "ZK Push"
 app_publisher = "t1nk333r"

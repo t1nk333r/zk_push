@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Attendance laid out like the ZKTeco software's Time Card, with overtime.
 
 One row per submitted Attendance the user may read. The figures come from the Attendance's in /

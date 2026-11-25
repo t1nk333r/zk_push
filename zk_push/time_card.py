@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Time card figures for one attendance day, computed the way the ZKTeco attendance software's
 Time Card report does (On duty / Off duty / Late / Early / OT Time / Work Time / ATT Time), and a
 rough monthly pay estimate from them (estimate_pay).

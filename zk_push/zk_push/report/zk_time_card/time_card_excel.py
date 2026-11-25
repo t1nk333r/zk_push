@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """ZK Time Card as a print-ready Excel workbook: one sheet per employee, laid out like the ZKTeco
 software's Time Card, with totals, the pay estimate (when the report has one) and signature lines.
 Durations are always HH:MM, as on the device software, whatever Show Durations in Minutes says.

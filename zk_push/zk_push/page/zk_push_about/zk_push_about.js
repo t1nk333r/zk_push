@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // Static About page: app version, what it does, the push URL to set on devices, and licence.
 frappe.pages["zk-push-about"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({

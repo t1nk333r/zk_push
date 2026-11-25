@@ -1,3 +1,5 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
 # Adds zk_push on top of an existing frappe_docker ERPNext + HRMS image (no apps.json rebuild needed).
 #
 #   docker build -f deploy/Containerfile --build-arg BASE_IMAGE=my-erpnext:v15 -t my-erpnext:v15-zkpush .

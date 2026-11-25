@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Upgrade from the site (page ZK Push Update). The site never runs commands: the button only writes a
 request file into the site folder. The upgrade agent (deploy/upgrade-agent/zk-push-upgrade.sh, run
 by cron as the bench user) picks it up, backs up and migrates every site with zk_push, restarts the

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Reference ZKTeco TCP client for the ESP32 agent: only what the firmware has to do.
 
 Standard library only, no pyzk. Every step maps to a small fixed-size operation, so the firmware

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Integration tests. Run on a bench with ERPNext + HRMS:  bench --site <site> run-tests --app zk_push"""
 
 from datetime import datetime

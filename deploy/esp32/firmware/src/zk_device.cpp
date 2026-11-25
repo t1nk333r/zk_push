@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 #include "zk_device.h"
 
 #include <Arduino.h>

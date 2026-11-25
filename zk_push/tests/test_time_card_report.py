@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """ZK Time Card report on real Attendance. Run on a bench with ERPNext + HRMS:
 bench --site <site> run-tests --app zk_push --module zk_push.tests.test_time_card_report"""
 

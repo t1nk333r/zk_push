@@ -1,5 +1,6 @@
 [project]
 name = "zk_push"
+license = { file = "license.txt" }
 authors = [
     { name = "t1nk333r" }
 ]

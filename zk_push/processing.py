@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Turn stored ZK Punch rows into Employee Checkins (runs in a background job)."""
 
 import time

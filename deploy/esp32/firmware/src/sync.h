@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // One pull: read the device's new records and post them to the site.
 #pragma once
 

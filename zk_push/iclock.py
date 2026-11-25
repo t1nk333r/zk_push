@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """HTTP side of the ZKTeco ADMS push protocol.
 
 Devices call /iclock/cdata, /iclock/getrequest and /iclock/devicecmd. These paths are

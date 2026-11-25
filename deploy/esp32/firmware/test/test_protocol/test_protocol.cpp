@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // Protocol unit tests, run on this computer: pio test -e native
 // Expected values come from ../../zk_reference.py, which is verified against a real MB20-VL.
 #include <string.h>

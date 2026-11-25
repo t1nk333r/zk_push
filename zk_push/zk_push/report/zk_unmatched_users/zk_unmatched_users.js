@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 frappe.query_reports["ZK Unmatched Users"] = {
 	filters: [
 		{ fieldname: "device", label: __("Device"), fieldtype: "Link", options: "ZK Device" },

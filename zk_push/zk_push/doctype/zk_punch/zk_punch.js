@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 const ZK_DEVICE_STATUS = {
 	0: __("Check-In"),
 	1: __("Check-Out"),

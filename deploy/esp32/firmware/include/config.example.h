@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // Copy to config.h (git-ignored) and fill in. The prototype has no setup page yet.
 // Everything here is compiled into the board's flash in plain text: anyone who can plug a USB cable
 // into the board can read the Wi-Fi password and the Comm Key (flash encryption is not enabled).

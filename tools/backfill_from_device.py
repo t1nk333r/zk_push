@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Copy a device's attendance log into an ERPNext site running zk_push.
 
 Reads the log from the device over the LAN (pull protocol, TCP 4370; read-only, nothing on the

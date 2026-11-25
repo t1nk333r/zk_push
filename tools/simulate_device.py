@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Simulate a ZKTeco ADMS push device against an ERPNext site running zk_push.
 
 Stdlib only. Lets you test the server end to end before touching the real device.

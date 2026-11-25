@@ -1,3 +1,5 @@
+// Copyright (c) 2026 t1nk333r
+// SPDX-License-Identifier: MIT
 // A connection to a ZKTeco device over TCP 4370 (read-only use). Port of Device in zk_reference.py.
 #pragma once
 

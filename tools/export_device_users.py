@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Export users from a ZKTeco device (pull protocol, port 4370) to CSV.
 
 Read-only. Use the output to fill "Attendance Device ID" on ERPNext Employees.

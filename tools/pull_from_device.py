@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Pull mode for devices without ADMS / Cloud Server settings.
 
 Runs on an always-on machine on the device's LAN. Every --interval seconds it reads the attendance

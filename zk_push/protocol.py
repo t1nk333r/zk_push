@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """ZKTeco ADMS / iclock push protocol helpers.
 
 Pure functions only (no frappe imports) so they can be unit-tested anywhere.

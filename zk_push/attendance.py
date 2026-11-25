@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """One Punch on Attendance: the shift's auto attendance (after the shift end) marks a day with only a
 clock in, or only a clock out, as Absent with no working hours. Such a day is flagged One Punch, with
 a comment, so HR can find it (Attendance list, One Punch = Yes) and check it: approve an Attendance

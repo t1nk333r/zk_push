@@ -1,3 +1,5 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
 # Pull agent for ZKTeco devices without ADMS (see README, "pull mode").
 # Built from the repository root by deploy/pull-agent/Makefile:
 #

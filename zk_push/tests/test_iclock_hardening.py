@@ -1,3 +1,6 @@
+# Copyright (c) 2026 t1nk333r
+# SPDX-License-Identifier: MIT
+
 """Integration tests for hostile or odd device requests. Run on a bench with ERPNext + HRMS:
 bench --site <site> run-tests --app zk_push --module zk_push.tests.test_iclock_hardening"""
 
