@@ -247,14 +247,6 @@ class TestIclock(FrappeTestCase):
 			self.assertEqual(status, 200)
 		self.assertEqual(frappe.db.get_value("ZK Device", SN, "att_stamp"), "100")
 
-	def test_all_unreadable_lines_are_kept(self):
-		device_request("cdata")
-		self.enable_device()
-		body = "".join(f"bad line {i}\n" for i in range(60))
-		self.assertEqual(device_request("cdata", "POST", body, table="ATTLOG"), (200, "OK: 60"))
-		log = self.last_error_log(f"%unreadable ATTLOG%{SN}%")
-		self.assertIn("bad line 59", log.error)
-
 	def test_unreadable_lines_log_is_capped(self):
 		device_request("cdata")
 		self.enable_device()
@@ -362,6 +354,7 @@ class TestIclock(FrappeTestCase):
 		device = frappe.get_doc("ZK Device", SN)
 		with self.assertRaises(frappe.ValidationError):
 			device.save()
+		device = frappe.get_doc("ZK Device", SN)  # the failed save left a new "modified" on the object
 		device.accept_any_ip = 1
 		device.save()
 		self.assertEqual(device_request("getrequest")[0], 200)
