@@ -17,6 +17,12 @@ frappe.query_reports["ZK Time Card"] = {
 		{ fieldname: "missing_punch", label: __("Missing Punch Counts As (min)"), fieldtype: "Int", default: 60 },
 		{ fieldname: "in_minutes", label: __("Show Durations in Minutes"), fieldtype: "Check" },
 		{
+			fieldname: "not_marked",
+			label: __("Count Days Not Marked (Absent, holidays from the employee's Holiday List)"),
+			fieldtype: "Check",
+			default: 1,
+		},
+		{
 			fieldname: "monthly_salary",
 			label: __("Monthly Salary (basic + allowances)"),
 			fieldtype: "Currency",

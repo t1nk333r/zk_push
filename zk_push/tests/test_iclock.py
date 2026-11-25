@@ -38,6 +38,7 @@ class TestIclock(FrappeTestCase):
 		frappe.db.delete("ZK Device Command", {"device": SN})
 		frappe.db.delete("ZK Device User", {"device": SN})
 		frappe.db.delete("ZK Device", {"name": SN})
+		frappe.cache.delete_keys("zk_push:registrations:")  # every test registers SN from 127.0.0.1
 		self.delete_error_logs()
 		self.employee = make_employee("zk_push_test@example.com", company="_Test Company")
 		frappe.db.set_value("Employee", self.employee, "attendance_device_id", "7001")
@@ -175,6 +176,36 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual(punch.attempts, 1)
 		self.assertTrue(punch.processed_at)
 		self.assertTrue(punch.employee_name)
+
+	def test_double_tap_is_duplicate(self):
+		device_request("cdata")
+		self.enable_device()
+		body = "7001\t2026-11-05 08:00:01\t0\t1\n7001\t2026-11-05 08:00:04\t0\t1\n7001\t2026-11-05 17:00:00\t1\t1\n"
+		device_request("cdata", "POST", body, table="ATTLOG")
+		processing.process_pending()
+		statuses = dict(frappe.get_all("ZK Punch", filters={"device": SN}, fields=["name", "status"], as_list=True))
+		self.assertEqual(
+			statuses,
+			{
+				f"{SN}-7001-20261105080001": "Created",
+				f"{SN}-7001-20261105080004": "Duplicate",  # a double tap, not the clock out
+				f"{SN}-7001-20261105170000": "Created",
+			},
+		)
+
+	def test_device_time_zone(self):
+		from zk_push import timezones
+
+		device_request("cdata")
+		zone = "Pacific/Auckland"  # far from any test site's time zone
+		self.enable_device(time_zone=zone)
+		device_request("cdata", "POST", "7001\t2026-11-05 08:00:00\t0\t1\n", table="ATTLOG")
+		processing.process_pending()
+		punch = frappe.get_doc("ZK Punch", f"{SN}-7001-20261105080000")
+		checkin_time = frappe.db.get_value("Employee Checkin", punch.employee_checkin, "time")
+		self.assertEqual(checkin_time, timezones.to_site_time(datetime(2026, 11, 5, 8, 0), zone))
+		self.assertNotEqual(checkin_time, datetime(2026, 11, 5, 8, 0))
+		self.assertEqual(punch.punch_time, datetime(2026, 11, 5, 8, 0))  # as the device sent it
 
 	def test_device_commands_round_trip(self):
 		device_request("cdata")

@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from zk_push import protocol
+from zk_push import protocol, timezones
 
 # Written by the device exchange with update_modified=False, so Frappe's "document was modified"
 # check never fires. Always keep the stored values, so saving a form opened earlier cannot roll
@@ -22,6 +22,7 @@ class ZKDevice(Document):
 			self.update(frappe.db.get_value("ZK Device", self.name, SERVER_FIELDS, as_dict=True) or {})
 		if not self.device_name:
 			self.device_name = self.serial_no
+		self.time_zone = timezones.check(self.time_zone)
 		if self.enabled:
 			self.auto_registered = 0
 			if not (self.allowed_ips or "").strip() and not self.accept_any_ip:

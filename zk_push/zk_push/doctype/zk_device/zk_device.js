@@ -11,6 +11,8 @@ const ZK_STATUS_COLORS = {
 
 frappe.ui.form.on("ZK Device", {
 	refresh(frm) {
+		// The time zone names Frappe knows, as the field's choices (as in System Settings).
+		frappe.xcall("zk_push.timezones.names").then((names) => frm.set_df_property("time_zone", "options", names));
 		if (frm.is_new()) return;
 
 		frm.trigger("show_summary");

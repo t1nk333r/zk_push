@@ -55,5 +55,6 @@ scheduler_events = {
 	"cron": {
 		"*/5 * * * *": ["zk_push.processing.enqueue_processing", "zk_push.processing.expire_commands"],
 	},
+	"hourly": ["zk_push.attendance.flag_half_day_leave"],
 	"daily": ["zk_push.processing.cleanup"],
 }

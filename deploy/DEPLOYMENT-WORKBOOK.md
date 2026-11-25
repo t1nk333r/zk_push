@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.3.9 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.4.0 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,15 +6,20 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.3.9, migrate | install v0.3.9 |
+| What to do | update to v0.4.0, migrate | install v0.4.0 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.3.6 to v0.3.9 add on the site:
+What v0.3.6 to v0.4.0 add on the site:
 - upgrade agent: installs only releases signed with the zk_push release key (the agent checks the
   signature, and a release it cannot verify is refused); a failed migrate restores the database of
   every site it migrated, not only the code; an approved Attendance Request clears the One Punch flag
   on every day it covers, and cancelling it flags those days again;
+- v0.4.0: **ZK Push Settings** with *Device Time Zone* (and *Time Zone* on each ZK Device) to convert
+  punch times from devices set to another time zone, and *Ignore Repeat Punches Within* (default 60 s:
+  a double tap is a Duplicate, not the clock out); the ZK Time Card counts working days with no
+  Attendance as Absent (*Count Days Not Marked*), weekly offs from each employee's Holiday List; days on
+  half-day leave with one punch are flagged; uploads and new device registrations are rate limited;
 - v0.3.9: a ZK Device needs Allowed IP Addresses or the new **Accept from any address** box before it
   can be enabled (the migrate ticks the box on devices already enabled without addresses, so they keep
   working: fill in their addresses when you can); Employee Checkins show the device's name instead of
@@ -22,7 +27,7 @@ What v0.3.6 to v0.3.9 add on the site:
   approved leave clears One Punch; the agent puts the sites in maintenance mode while it upgrades,
   refuses older releases unless `ZK_ALLOW_DOWNGRADE=1`, and fetches from bench's `upstream` remote;
 - the agent must be installed by hand once more: copy `deploy/upgrade-agent/release-signers` to
-  `~/zk-push-release-signers` on the server and the 0.3.9 agent over the old one (see
+  `~/zk-push-release-signers` on the server and the 0.4.0 agent over the old one (see
   `deploy/upgrade-agent/README.md`);
 - in v0.3.5: upgrade agent hardening (only the sites in `ZK_SITES` may start an upgrade, no release
   older than v0.3.5, a moved release tag is refused, an interrupted upgrade no longer blocks the page),
@@ -75,7 +80,7 @@ touch production beyond the few seconds of the restart (B3).
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.3.9
+  git fetch --tags && git checkout v0.4.0
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
@@ -105,20 +110,20 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.3.9.**
+- [ ] **B2. Get v0.4.0.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && (git fetch --tags upstream || git fetch --tags origin) && git checkout v0.3.9 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && (git fetch --tags upstream || git fetch --tags origin) && git checkout v0.4.0 && cd ../..
     ```
     (Works from an older tag too; `git pull` does not, as a checked-out tag is not a branch.)
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.3.9 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.9 .
+    git clone --branch v0.4.0 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.4.0 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.3.9 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.3.9` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.4.0 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.4.0` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
   - Bench: `bench --site test.nss.sa migrate`, then restart the web server and workers:
     ```bash
@@ -236,7 +241,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.3.9 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
+    bench get-app --branch v0.4.0 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
     bench --site nss.sa install-app zk_push
     bench restart
     ```

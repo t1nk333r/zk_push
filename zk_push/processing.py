@@ -4,15 +4,18 @@
 """Turn stored ZK Punch rows into Employee Checkins (runs in a background job)."""
 
 import time
+from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
+from frappe.utils import add_days, add_to_date, cint, get_datetime, now_datetime
 from rq.timeouts import JobTimeoutException
 
-from zk_push import protocol
+from zk_push import protocol, timezones
 
 JOB_ID = "zk_push:process_pending"
+# Ignore Repeat Punches Within, until ZK Push Settings is saved (same as its default).
+DEFAULT_REPEAT_SECONDS = 60
 BATCH_SIZE = 2000
 # Seconds; a full batch of checkins must fit (the short queue's default is 300).
 JOB_TIMEOUT = 1500
@@ -260,21 +263,32 @@ def cleanup():
 	)
 
 
+def repeat_seconds() -> int:
+	"""ZK Push Settings' Ignore Repeat Punches Within. Read from Singles: get_single_value gives 0 for a
+	setting never saved, which would turn it off instead of using its default."""
+	value = frappe.db.sql(
+		"select value from `tabSingles` where doctype = 'ZK Push Settings' and field = 'repeat_punch_seconds'"
+	)
+	return DEFAULT_REPEAT_SECONDS if not value else max(cint(value[0][0]), 0)
+
+
 class _Context:
 	"""Per-job caches."""
 
 	def __init__(self):
 		self.devices = {}
 		self.employees = {}
+		self.repeat_seconds = repeat_seconds()
 
 	def device(self, name):
 		if name not in self.devices:
 			self.devices[name] = frappe.db.get_value(
 				"ZK Device",
 				name,
-				["device_name", "import_from", "log_type_mode", "latitude", "longitude"],
+				["device_name", "import_from", "log_type_mode", "latitude", "longitude", "time_zone"],
 				as_dict=True,
 			) or frappe._dict()
+			self.devices[name].time_zone = timezones.device_time_zone(self.devices[name].time_zone)
 		return self.devices[name]
 
 	def employees_for_pin(self, pin):
@@ -355,19 +369,23 @@ def _evaluate(punch, context: _Context) -> dict:
 	# Lock the employee so a job running at the same time (two devices, same second) waits here
 	# and then finds this checkin, instead of both inserting one.
 	frappe.db.sql("select name from `tabEmployee` where name = %s for update", employee.name)
-	# Same employee, same second = same punch, whatever its log type ('' and NULL both mean blank).
-	# A locking read: it sees checkins committed after this transaction's snapshot was taken (a plain
-	# read under REPEATABLE READ would not, and the other job's checkin would be inserted again).
+	site_time = timezones.to_site_time(punch.punch_time, device.time_zone)
+	# Same employee, same second = same punch, whatever its log type ('' and NULL both mean blank); a
+	# punch within the repeat window of another is a double tap. A locking read: it sees checkins
+	# committed after this transaction's snapshot was taken (a plain read under REPEATABLE READ would
+	# not, and the other job's checkin would be inserted again).
+	window = timedelta(seconds=context.repeat_seconds)
 	existing = frappe.db.sql(
-		"select name from `tabEmployee Checkin` where employee = %s and time = %s limit 1 for update",
-		(employee.name, punch.punch_time),
+		"""select name from `tabEmployee Checkin` where employee = %s and time between %s and %s
+		order by abs(timestampdiff(second, time, %s)) limit 1 for update""",
+		(employee.name, site_time - window, site_time + window, site_time),
 	)
 	if existing:
 		return {**matched, "status": "Duplicate", "employee_checkin": existing[0][0]}
 
 	checkin = frappe.new_doc("Employee Checkin")
 	checkin.employee = employee.name
-	checkin.time = punch.punch_time
+	checkin.time = site_time
 	checkin.log_type = protocol.map_log_type(punch.device_status, device.log_type_mode)
 	# The name, not the serial: employees can read their own checkins, and the serial lets anyone talk
 	# to the iclock endpoints as that device.

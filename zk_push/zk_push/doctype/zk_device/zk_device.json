@@ -15,6 +15,7 @@
   "import_from",
   "discard_before_import",
   "log_type_mode",
+  "time_zone",
   "column_break_processing",
   "latitude",
   "longitude",
@@ -103,6 +104,12 @@
    "label": "Checkin Log Type",
    "options": "Leave Blank\nFrom Device Status",
    "description": "Leave Blank lets the Shift Type decide (alternating IN/OUT). Use From Device Status only if staff press the Check-In / Check-Out keys on the device."
+  },
+  {
+   "fieldname": "time_zone",
+   "fieldtype": "Autocomplete",
+   "label": "Time Zone",
+   "description": "The time zone this device's clock is set to, when it differs from the site's and from ZK Push Settings. Punch times are converted when the Employee Checkin is made; Ignore Punches Before is in the device's own time."
   },
   {
    "fieldname": "column_break_processing",

@@ -37,6 +37,7 @@ class TestIclockHardening(FrappeTestCase):
 		for doctype in ("ZK Punch", "ZK Request Log", "ZK Device Command", "ZK Device User"):
 			frappe.db.delete(doctype, {"device": SN})
 		frappe.db.delete("ZK Device", {"name": SN})
+		frappe.cache.delete_keys("zk_push:registrations:")  # every test registers SN from 127.0.0.1
 		device_request("cdata")  # registers the device, disabled
 		frappe.db.set_value("ZK Device", SN, {"enabled": 1, "accept_any_ip": 1})
 

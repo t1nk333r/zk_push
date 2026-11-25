@@ -23,6 +23,14 @@ TOUCH_INTERVAL_SECONDS = 60
 # Unknown serials are auto-registered (disabled) so an admin only has to tick "Enabled".
 # Cap them so random internet traffic cannot flood the table.
 MAX_PENDING_REGISTRATIONS = 20
+# A pending registration not heard from for this long makes room for a new device once the cap is
+# reached (a real device polls every few seconds).
+STALE_REGISTRATION_SECONDS = 3600
+# New registrations accepted from one address per hour.
+MAX_REGISTRATIONS_PER_IP_HOUR = 5
+# Uploads (cdata POST) accepted per device and minute; above that the device gets 503, keeps the data
+# and retries. A device sending a long history uploads one batch after the other, well below this.
+MAX_UPLOADS_PER_MINUTE = 120
 # Request log truncation.
 MAX_LOGGED_BODY = 64 * 1024
 # Device users stored per OPERLOG request (devices hold up to a few thousand).
@@ -116,7 +124,7 @@ def _handle(ex: _Exchange):
 	if not protocol.is_valid_sn(sn):
 		return ex.respond("ERROR: invalid SN", 400)
 
-	device = ex.device = _get_or_register_device(sn)
+	device = ex.device = _get_or_register_device(sn, request)
 	if not device:
 		return ex.respond("ERROR: unknown device", 403)
 
@@ -135,6 +143,10 @@ def _handle(ex: _Exchange):
 		return ex.respond("ERROR: device not enabled", 403)
 	if request.method == "POST" and ex.too_large():
 		return ex.respond("ERROR: body too large", 413)
+	if ex.endpoint == "cdata" and request.method == "POST" and _over_limit(
+		f"zk_push:uploads:{sn}:{int(time.time() // 60)}", MAX_UPLOADS_PER_MINUTE, 120
+	):
+		return ex.respond("ERROR: too many uploads, retry later", 503)
 
 	if ex.endpoint == "cdata" and request.method == "GET":
 		return ex.respond(protocol.build_handshake(sn, device.att_stamp))
@@ -257,12 +269,33 @@ def _command_results(device, body: str):
 		)
 
 
-def _get_or_register_device(sn: str):
+def _get_or_register_device(sn: str, request):
 	device = frappe.db.get_value("ZK Device", sn, DEVICE_FIELDS, as_dict=True)
 	if device:
 		return device
 
+	# A few new serials per address and hour: real devices are added one at a time.
+	hour = int(time.time() // 3600)
+	if _over_limit(f"zk_push:registrations:{_client_ip(request)}:{hour}", MAX_REGISTRATIONS_PER_IP_HOUR, 3600):
+		return None
 	pending = frappe.db.count("ZK Device", {"enabled": 0, "auto_registered": 1})
+	if pending >= MAX_PENDING_REGISTRATIONS:
+		# Make room by dropping the oldest one that has stopped calling: made-up serials sent once, not a
+		# real device, which polls every few seconds.
+		stale = frappe.get_all(
+			"ZK Device",
+			filters={
+				"enabled": 0,
+				"auto_registered": 1,
+				"last_seen": ["<", add_to_date(now_datetime(), seconds=-STALE_REGISTRATION_SECONDS)],
+			},
+			order_by="last_seen asc",
+			limit=1,
+			pluck="name",
+		)
+		if stale:
+			frappe.delete_doc("ZK Device", stale[0], ignore_permissions=True, force=True)
+			pending -= 1
 	if pending >= MAX_PENDING_REGISTRATIONS:
 		# Otherwise a real new device is turned away without a trace (no device, no request log).
 		if not frappe.cache.get_value("zk_push:registration_limit_logged"):
@@ -352,6 +385,19 @@ def _log_request(ex: _Exchange):
 		frappe.db.rollback()
 		frappe.log_error(title="ZK Push: could not write request log")
 		_commit()
+
+
+def _over_limit(key: str, limit: int, expires: int) -> bool:
+	"""Count one more under key (kept for expires seconds); True once the count passes limit. Without
+	Redis nothing is limited rather than everything refused."""
+	try:
+		key = frappe.cache.make_key(key)
+		count = frappe.cache.incr(key)
+		if count == 1:
+			frappe.cache.expire(key, expires)
+		return count > limit
+	except RedisError:
+		return False
 
 
 def _client_ip(request):

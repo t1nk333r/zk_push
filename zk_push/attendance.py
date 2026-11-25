@@ -8,10 +8,12 @@ Request if the employee worked, or leave it. An approved Attendance Request clea
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, date_diff, getdate
+from frappe.utils import add_days, date_diff, getdate, today
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 FIELD = "zk_one_punch"
+# How far back flag_half_day_leave looks.
+RESYNC_DAYS = 7
 CUSTOM_FIELDS = {
 	"Attendance": [
 		{
@@ -120,3 +122,19 @@ def on_leave_application_submit(doc, method=None):
 		where leave_application = %s and status = 'On Leave' and docstatus = 1 and `{FIELD}` = 1""",
 		doc.name,
 	)
+
+
+def flag_half_day_leave():
+	"""Hourly: flag the one-punch days on half-day leave. HRMS creates that Attendance with
+	ignore_validate when the leave is approved, and auto attendance later writes the punches into it
+	with db.set_value: validate never runs on it. Only the last RESYNC_DAYS days."""
+	frappe.db.sql(
+		f"""update `tabAttendance` set `{FIELD}` = 1
+		where docstatus = 1 and status = 'Half Day' and leave_type is not null and leave_type != ''
+		and `{FIELD}` = 0 and attendance_date >= %s
+		and (attendance_request is null or attendance_request = '')
+		and (amended_from is null or amended_from = '')
+		and ((in_time is null) != (out_time is null))""",
+		add_days(today(), -RESYNC_DAYS),
+	)
+

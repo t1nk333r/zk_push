@@ -14,6 +14,9 @@ see zk_push.time_card for the rules. On top of what HRMS records:
 - Half Day with leave: the leave half is neither Late nor Early; the worked half is half the
   shift, and less than that counts as Early. A Half Day without leave and with punches (HRMS marks
   one below the shift's half-day threshold) keeps its Late / Early, like the device software.
+- With Count Days Not Marked, a working day with no Attendance at all (up to yesterday) is a row
+  of its own, counted Absent. Holidays come from each employee's Holiday List, so an employee off on
+  Friday only and one off on Friday and Saturday each get their own working days.
 - With one Employee, a Monthly Salary and at most 31 days, the totals add a pay estimate. Leave
   Without Pay is deducted in full, Partially Paid Leave by the part not paid. A date with several
   shifts (several Attendance) deducts at most one day, shared by shift length.
@@ -21,7 +24,7 @@ see zk_push.time_card for the rules. On top of what HRMS records:
 
 import frappe
 from frappe import _
-from frappe.utils import cint, date_diff, flt, getdate
+from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
 from zk_push.time_card import (
 	Day,
@@ -82,6 +85,12 @@ def execute(filters=None):
 			row[field] = show(getattr(day, field))
 		data.append(row)
 	share_absence_between_shifts(data, shifts)
+	if cint(filters.not_marked):
+		for row in not_marked_rows(filters, rows):
+			for field in DURATIONS:
+				row[field] = show(0)
+			data.append(row)
+		data.sort(key=lambda row: (row["employee"], str(row["attendance_date"])))
 
 	cards = summary(data, totals, in_minutes)
 	if flt(filters.monthly_salary):
@@ -172,6 +181,79 @@ def attendance_rows(filters):
 		order_by="employee asc, attendance_date asc",
 		limit_page_length=0,
 	)
+
+
+def not_marked_rows(filters, rows):
+	"""A row for each working day with no submitted Attendance, from the employee's joining (and their
+	default shift's Process Attendance After) to yesterday or their relieving. Holidays are those of
+	the employee's Holiday List (or the company's), so weekly offs can differ per employee. HRMS leaves
+	such days unmarked when the employee has no shift, or the day was not processed: counted Absent, so
+	the pay estimate does not pay for a day nobody checked."""
+	from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
+
+	last = min(filters.to_date, getdate(add_days(today(), -1)))
+	if last < filters.from_date:
+		return []
+	conditions = {"date_of_joining": ["<=", last], "status": ["!=", "Inactive"]}
+	if filters.employee:
+		conditions["name"] = filters.employee
+	if filters.company:
+		conditions["company"] = filters.company
+	# get_list: only the employees the user may read, as for the Attendance rows.
+	employees = frappe.get_list(
+		"Employee",
+		filters=conditions,
+		fields=["name", "employee_name", "company", "date_of_joining", "relieving_date", "default_shift"],
+		limit_page_length=0,
+	)
+	marked = {(r.employee, getdate(r.attendance_date)) for r in rows}
+	starts = dict(
+		frappe.get_all("Shift Type", filters={"process_attendance_after": ["is", "set"]},
+			fields=["name", "process_attendance_after"], as_list=True)
+	)  # fmt: skip
+	holidays = {}
+	result = []
+	for e in employees:
+		first = max(filters.from_date, getdate(e.date_of_joining))
+		if e.default_shift in starts:
+			first = max(first, getdate(starts[e.default_shift]))
+		end = min(last, getdate(e.relieving_date)) if e.relieving_date else last
+		holiday_list = get_holiday_list_for_employee(e.name, raise_exception=False)
+		if holiday_list not in holidays:
+			holidays[holiday_list] = set(
+				frappe.get_all(
+					"Holiday",
+					filters={"parent": holiday_list, "holiday_date": ["between", [filters.from_date, last]]},
+					pluck="holiday_date",
+				)
+				if holiday_list
+				else ()
+			)
+		for i in range(date_diff(end, first) + 1):
+			day = add_days(first, i)
+			if (e.name, day) in marked or day in holidays[holiday_list]:
+				continue
+			result.append(
+				{
+					"attendance": None,
+					"employee": e.name,
+					"employee_name": e.employee_name,
+					"company": e.company,
+					"attendance_date": day,
+					"day": _(day.strftime("%A")),
+					"status": "Absent",
+					"notice": _("Not marked: no Attendance for this day")
+					if holiday_list
+					else _("Not marked, and no Holiday List: set one on the Employee or Company"),
+					"shift": e.default_shift,
+					"on_duty": "",
+					"off_duty": "",
+					"clock_in": "",
+					"clock_out": "",
+					"absent_days": 1,
+				}
+			)
+	return result
 
 
 def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):

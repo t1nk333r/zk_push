@@ -59,7 +59,7 @@ on the ERPNext Employee ID, so device user IDs and ERPNext IDs can be completely
 |---|---|
 | Pending | Received, waiting for the background job |
 | Created | Employee Checkin created |
-| Duplicate | A checkin for that employee at that exact time already existed |
+| Duplicate | A checkin for that employee at that time already existed, or one within *Ignore Repeat Punches Within* (a double tap) |
 | Unmatched | No employee has this Attendance Device ID (yet) |
 | Skipped | Older than the device's *Ignore Punches Before* |
 | Error | HRMS rejected the checkin; the reason is shown on the punch |
@@ -295,6 +295,7 @@ on, punches older than *Ignore Punches Before* are dropped, not stored.
 | Branch | Copied onto each punch, for reporting / multi-location |
 | Ignore Punches Before | Older punches are stored as Skipped (retry them after changing the date) |
 | Discard Instead of Skipping | Drop punches before *Ignore Punches Before* as they arrive instead of storing them. The push equivalent of the pull agent's `--since`; dropped punches can only be recovered from the device |
+| Time Zone | The time zone the device's clock is set to, when it is not the site's nor the one in ZK Push Settings. Punch times are converted when the checkin is made; ZK Punch and *Ignore Punches Before* keep the device's own time |
 | Checkin Log Type | *From Device Status* (default for new devices) sets IN/OUT from the Check-In/Check-Out key pressed on the device. *Leave Blank* lets the Shift Type alternate IN/OUT. Devices that already exist keep their setting |
 | Latitude / Longitude | Only needed if HR Settings → *Allow Geolocation Tracking* is on |
 | Allowed IP Addresses | Addresses or networks (`203.0.113.7, 10.0.0.0/24`) the device connects from; requests from anywhere else are refused and change nothing. A device is enabled only with these, or with *Accept from any address* |
@@ -320,6 +321,13 @@ them up on its next poll; pull mode cannot receive commands):
 
 The command line is built on the server from checked values (no tabs or line breaks from a form).
 Not every firmware supports every command; the result comes back in ZK Device Command.
+
+## ZK Push Settings
+
+| Field | Notes |
+|---|---|
+| Device Time Zone | The time zone the devices' clocks are set to, when it is not the site's (System Settings). Punch times are converted to the site's time zone when the Employee Checkin is made; checkins already made are not changed. A device can set its own on the ZK Device |
+| Ignore Repeat Punches Within | Seconds (default 60). A punch this soon after another punch of the same employee is a double tap: kept as Duplicate, so a forgotten clock out is still flagged One Punch. 0: only the very same second |
 
 ## Daily attendance
 
@@ -374,6 +382,12 @@ with totals. Only the Attendance the user may read is shown and counted.
 - **Half Day with leave**: the leave half is neither Late nor Early; time short of the worked half
   counts as Early. A Half Day without leave (below the shift's half-day threshold) keeps its
   Late / Early, like the device software.
+- **Days not marked** (*Count Days Not Marked*, on by default): a working day up to yesterday with
+  no Attendance at all is a row of its own, Absent with a notice, and counted in the pay estimate.
+  HRMS leaves a day unmarked when the employee has no shift, or the day was not processed. Holidays
+  and weekly offs come from each employee's Holiday List (or the company's), so one employee can be
+  off on Friday only and another on Friday and Saturday. Days before joining, after relieving, or
+  before the default shift's *Process Attendance After* are left out.
 - *Show Durations in Minutes* switches 01:18 to 78.
 
 **Excel Time Card.** The button above the report downloads the same rows as a print-ready workbook:

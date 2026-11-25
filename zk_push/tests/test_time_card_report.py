@@ -180,6 +180,46 @@ class TestTimeCardReport(FrappeTestCase):
 		self.assertAlmostEqual(absent["2026-10-26"], 1, places=2)
 		self.assertAlmostEqual(absent["2026-10-27"], 240 / 780, places=2)
 
+	def test_days_not_marked(self):
+		def holiday_list(name, days):
+			if frappe.db.exists("Holiday List", name):
+				frappe.delete_doc("Holiday List", name, force=True)
+			frappe.get_doc(
+				{
+					"doctype": "Holiday List",
+					"holiday_list_name": name,
+					"from_date": "2026-10-01",
+					"to_date": "2026-10-31",
+					"holidays": [{"holiday_date": d, "description": "Weekly off", "weekly_off": 1} for d in days],
+				}
+			).insert(ignore_permissions=True)
+			return name
+
+		# Friday 9 Oct and Saturday 10 Oct.
+		frappe.db.set_value("Employee", self.employee, "holiday_list", holiday_list("_ZK Fri", ["2026-10-09"]))
+		frappe.db.set_value(
+			"Employee", self.other, "holiday_list", holiday_list("_ZK Fri Sat", ["2026-10-09", "2026-10-10"])
+		)
+		for emp in (self.employee, self.other):
+			attendance(emp, "2026-10-05", "Present", "08:00", "17:00")
+		filters = {"from_date": "2026-10-05", "to_date": "2026-10-10", "company": "_Test Company"}
+
+		_, data, *_ = execute({**filters, "not_marked": 1})
+		missing = {
+			(r["employee"], str(r["attendance_date"])) for r in data if r["employee"] in (self.employee, self.other)
+			and not r["attendance"]
+		}  # fmt: skip
+		days = ["2026-10-06", "2026-10-07", "2026-10-08"]
+		self.assertEqual(
+			missing,
+			{(self.employee, d) for d in [*days, "2026-10-10"]} | {(self.other, d) for d in days},
+		)
+		row = next(r for r in data if r["employee"] == self.employee and str(r["attendance_date"]) == "2026-10-06")
+		self.assertEqual((row["status"], row["absent_days"]), ("Absent", 1))
+
+		_, data, *_ = execute(filters)  # not ticked: only the Attendance
+		self.assertTrue(all(r["attendance"] for r in data))
+
 	def test_input_checks(self):
 		attendance(self.employee, "2026-10-05", "Present", "08:00", "17:00")
 		_, cards = report(employee=self.employee, monthly_salary=7000, gosi_percent=-5)

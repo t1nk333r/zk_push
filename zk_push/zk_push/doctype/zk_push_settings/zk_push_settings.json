@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "creation": "2026-11-25 12:00:00.000000",
+ "description": "Settings for turning device punches into Employee Checkins.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device_time_zone",
+  "column_break_tz",
+  "repeat_punch_seconds"
+ ],
+ "fields": [
+  {
+   "fieldname": "device_time_zone",
+   "fieldtype": "Autocomplete",
+   "label": "Device Time Zone",
+   "description": "The time zone the devices' clocks are set to, when it is not the site's (System Settings). Punch times are converted to the site's time zone when the Employee Checkin is made. Blank: the devices use the site's time zone. A device can set its own on the ZK Device. Checkins already made are not changed."
+  },
+  {
+   "fieldname": "column_break_tz",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "fieldname": "repeat_punch_seconds",
+   "fieldtype": "Int",
+   "label": "Ignore Repeat Punches Within (seconds)",
+   "description": "A punch this soon after another punch of the same employee (a double tap) is kept as Duplicate, not a second checkin, so a forgotten clock out is still flagged One Punch. 0: only the very same second."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-11-25 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ZK Push",
+ "name": "ZK Push Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "HR Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
