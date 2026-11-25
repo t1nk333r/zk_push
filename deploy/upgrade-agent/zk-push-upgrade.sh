@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 # ZK Push upgrade agent: does the upgrades asked for on the site (page ZK Push Update).
 #

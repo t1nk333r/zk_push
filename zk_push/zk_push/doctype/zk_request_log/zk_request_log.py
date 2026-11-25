@@ -1,4 +1,4 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 from frappe.model.document import Document

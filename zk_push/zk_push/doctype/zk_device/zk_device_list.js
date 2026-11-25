@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // Keep in sync with zk_push.api.ONLINE_WINDOW_MINUTES
 const ZK_ONLINE_WINDOW_MINUTES = 5;

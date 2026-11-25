@@ -432,4 +432,4 @@ bench --site <test-site> run-tests --app zk_push            # full suite (ERPNex
 
 ## License
 
-MIT. Copyright (c) 2026 t1nk333r. See [license.txt](license.txt).
+MIT. Copyright (c) 2026 Abdulrahman Aloqayli. See [license.txt](license.txt).

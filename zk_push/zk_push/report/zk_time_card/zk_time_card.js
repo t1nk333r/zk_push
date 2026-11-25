@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // The desk does not send filters that are 0 or unticked; the server reads a missing number as 0.
 frappe.query_reports["ZK Time Card"] = {

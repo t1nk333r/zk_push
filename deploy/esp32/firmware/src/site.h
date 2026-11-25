@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // The ERPNext site's /iclock/cdata endpoint, the same one push devices and the pull agent use.
 #pragma once

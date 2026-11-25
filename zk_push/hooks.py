@@ -1,9 +1,9 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 app_name = "zk_push"
 app_title = "ZK Push"
-app_publisher = "t1nk333r"
+app_publisher = "Abdulrahman Aloqayli"
 app_description = "Receive ZKTeco ADMS (iclock) push attendance directly into ERPNext / HRMS"
 app_email = "35288751+t1nk333r@users.noreply.github.com"
 app_license = "mit"

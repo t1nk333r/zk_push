@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // Copy to config.h (git-ignored) and fill in. The prototype has no setup page yet.
 // Everything here is compiled into the board's flash in plain text: anyone who can plug a USB cable

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 """ZK Time Card report on real Attendance. Run on a bench with ERPNext + HRMS:

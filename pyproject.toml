@@ -2,7 +2,7 @@
 name = "zk_push"
 license = { file = "license.txt" }
 authors = [
-    { name = "t1nk333r" }
+    { name = "Abdulrahman Aloqayli" }
 ]
 description = "Receive ZKTeco ADMS (iclock) push attendance directly into ERPNext / HRMS"
 requires-python = ">=3.10"

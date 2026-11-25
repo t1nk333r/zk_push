@@ -1,4 +1,4 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 """Export users from a ZKTeco device (pull protocol, port 4370) to CSV.

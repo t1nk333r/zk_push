@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // One pull: read the device's new records and post them to the site.
 #pragma once

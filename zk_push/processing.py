@@ -1,4 +1,4 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 """Turn stored ZK Punch rows into Employee Checkins (runs in a background job)."""

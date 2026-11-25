@@ -1,4 +1,4 @@
-# Copyright (c) 2026 t1nk333r
+# Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
 """ZK Time Card as a print-ready Excel workbook: one sheet per employee, laid out like the ZKTeco

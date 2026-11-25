@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // Static About page: app version, what it does, the push URL to set on devices, and licence.
 frappe.pages["zk-push-about"].on_page_load = function (wrapper) {
@@ -38,7 +38,7 @@ frappe.pages["zk-push-about"].on_page_load = function (wrapper) {
 
 			<p style="margin-top: var(--margin-lg);">
 				<a href="https://github.com/t1nk333r/zk_push" target="_blank" rel="noopener noreferrer">github.com/t1nk333r/zk_push</a><br>
-				Copyright © 2026 t1nk333r · MIT
+				Copyright © 2026 Abdulrahman Aloqayli · MIT
 			</p>
 		</div>
 	`).appendTo(page.main);

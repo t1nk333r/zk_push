@@ -1,4 +1,4 @@
-// Copyright (c) 2026 t1nk333r
+// Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
 // Upgrade ZK Push from the site. The button only asks for the upgrade; the upgrade agent on the
 // server (deploy/upgrade-agent) does it within a minute and reports back here.
