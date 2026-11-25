@@ -90,8 +90,9 @@ Update later with `bench update --apps zk_push` or `cd apps/zk_push && git pull`
 `bench --site <your-site> migrate`.
 
 To upgrade from the site instead (page **ZK Push Update**, System Managers), an administrator
-installs the upgrade agent once: see [deploy/upgrade-agent](deploy/upgrade-agent/README.md). Not for
-frappe_docker, where the app is part of the image.
+installs the upgrade agent once: see [deploy/upgrade-agent](deploy/upgrade-agent/README.md). The agent
+installs only releases signed with the zk_push release key. Not for frappe_docker, where the app is
+part of the image.
 
 ### frappe_docker
 

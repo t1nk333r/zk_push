@@ -4,13 +4,16 @@ With the agent installed, a System Manager upgrades zk_push from the page **ZK P
 for it, or the link on About ZK Push): pick a release, click **Upgrade**. The page only writes a
 request file into the site folder; within a minute the agent, run by cron as the bench user, backs up
 and migrates every site with zk_push, restarts the bench, and shows the result and the log on the page.
-If the install or a migrate fails it goes back to the previous version. The site itself never runs
+If the install or a migrate fails it goes back to the previous version, and restores the database of
+every site it had already migrated (from a backup taken just before). The site itself never runs
 commands or sudo.
 
 All sites on a bench share the app code: an upgrade asked for on one site upgrades them all. So a
 System Manager of any site can change the code every site runs; limit that with `ZK_SITES` (step 3).
 
-It only installs releases from v0.3.5 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
+It only installs releases from v0.3.6 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
+It installs only a release tag signed with the zk_push release key (`ZK_SIGNERS`), so a GitHub account
+that is compromised, and publishes a tag without the key, cannot push code to the server.
 It refuses a release tag that was moved on GitHub after it was first fetched.
 
 ## Install (once, by an administrator, as root or with sudo)
@@ -22,6 +25,13 @@ The commands are for the bench at `/home/nss/frappe-bench`, user `nss`. Change b
 
        sudo -u nss cp /home/nss/frappe-bench/apps/zk_push/deploy/upgrade-agent/zk-push-upgrade.sh /home/nss/zk-push-upgrade.sh
        sudo chmod 755 /home/nss/zk-push-upgrade.sh
+
+1b. Copy the release signing key, the list of signers the agent trusts (from this repository, at the
+   release you install; it is not a secret):
+
+       sudo -u nss cp /home/nss/frappe-bench/apps/zk_push/deploy/upgrade-agent/release-signers /home/nss/zk-push-release-signers
+
+   Without this file the agent installs nothing and says so in the log.
 
 2. Let the bench user restart the bench, and nothing else (check the path with `which supervisorctl`;
    the colons must be escaped in sudoers):

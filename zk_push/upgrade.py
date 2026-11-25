@@ -27,9 +27,9 @@ import zk_push
 
 REPO = "t1nk333r/zk_push"
 TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
-# The first release with this page and the agent's checks. Going below it would remove them, and an
+# The first signed release with this page and the agent's checks. Going below it would remove them, and an
 # older release lacks security fixes: the agent refuses it too (ZK_MIN_TAG).
-MIN_TAG = "v0.3.5"
+MIN_TAG = "v0.3.6"
 # The agent runs every minute: older than this, it is not running.
 AGENT_STALE_SECONDS = 5 * 60
 RELEASES_CACHE_SECONDS = 60 * 60

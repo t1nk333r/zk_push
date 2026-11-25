@@ -66,5 +66,10 @@ def on_submit(doc, method=None):
 
 
 def on_attendance_request_submit(doc, method=None):
-	"""HRMS updates the day's Attendance with db_set (no validate): clear the flag here."""
-	frappe.db.set_value("Attendance", {"attendance_request": doc.name, FIELD: 1}, FIELD, 0)
+	"""An approved request means HR checked those days. HRMS updates the Attendance with db_set (no
+	validate), and leaves it alone when it already has the requested status: clear the flag here."""
+	frappe.db.sql(
+		f"""update `tabAttendance` set `{FIELD}` = 0
+		where employee = %s and attendance_date between %s and %s and docstatus = 1 and `{FIELD}` = 1""",
+		(doc.employee, doc.from_date, doc.to_date),
+	)
