@@ -7,7 +7,11 @@ and migrates every site with zk_push, restarts the bench, and shows the result a
 If the install or a migrate fails it goes back to the previous version. The site itself never runs
 commands or sudo.
 
-All sites on a bench share the app code: an upgrade asked for on one site upgrades them all.
+All sites on a bench share the app code: an upgrade asked for on one site upgrades them all. So a
+System Manager of any site can change the code every site runs; limit that with `ZK_SITES` (step 3).
+
+It only installs releases from v0.3.5 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
+It refuses a release tag that was moved on GitHub after it was first fetched.
 
 ## Install (once, by an administrator, as root or with sudo)
 
@@ -26,13 +30,16 @@ The commands are for the bench at `/home/nss/frappe-bench`, user `nss`. Change b
        sudo chmod 440 /etc/sudoers.d/zk-push-upgrade
        sudo visudo -cf /etc/sudoers.d/zk-push-upgrade
 
-3. Run it every minute from the bench user's crontab (keeps the lines already there):
+3. Run it every minute from the bench user's crontab (keeps the lines already there). `ZK_SITES` names
+   the sites whose System Managers may start an upgrade; leave it out to allow every site. A request
+   from another site is dropped, and that site's page says so.
 
-       (sudo -u nss crontab -l 2>/dev/null; echo '* * * * * /home/nss/zk-push-upgrade.sh') | sudo -u nss crontab -
+       (sudo -u nss crontab -l 2>/dev/null; echo '* * * * * ZK_SITES=test.nss.sa /home/nss/zk-push-upgrade.sh') | sudo -u nss crontab -
 
 4. Within a minute, ZK Push Update shows **Upgrade agent: running**.
 
-The agent refuses to upgrade if `apps/zk_push` has local changes. Its log of the last upgrade is shown on
+If the server restarts during an upgrade, the next run marks it Failed (interrupted): check the log
+and the site, then start it again. The agent refuses to upgrade if `apps/zk_push` has local changes. Its log of the last upgrade is shown on
 the page (and kept in `sites/<site>/zk_push_upgrade.log`). If a release changes the agent, its notes say
 so: repeat step 1.
 

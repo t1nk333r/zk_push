@@ -6,13 +6,20 @@
 # the release tag, installs, migrates, restarts the bench, and writes the result and the log back to
 # the site that asked. If the install or a migrate fails it goes back to the previous version.
 #
-# Settings (environment, or edit here):
+# Settings (environment, e.g. on the crontab line):
+#   ZK_SITES    the sites allowed to ask for an upgrade, space separated (default: every site). The
+#               upgrade covers every site on the bench either way: this decides whose System Managers
+#               may start it.
+#   ZK_MIN_TAG  the oldest release it installs (default below); older ones lack this agent's checks or
+#               security fixes
 #   ZK_BENCH    the bench folder              (default: ~/frappe-bench)
 #   ZK_RESTART  the restart command           (default: the supervisor groups of a production bench)
 set -uo pipefail
 
 BENCH="${ZK_BENCH:-$HOME/frappe-bench}"
 RESTART="${ZK_RESTART:-sudo -n /usr/bin/supervisorctl restart frappe-bench-web: frappe-bench-workers:}"
+MIN_TAG="${ZK_MIN_TAG:-v0.3.5}"
+ALLOWED_SITES="${ZK_SITES:-}"
 APP="$BENCH/apps/zk_push"
 SITES_DIR="$BENCH/sites"
 # cron starts with a short PATH; bench is usually installed with pip --user or pipx.
@@ -48,9 +55,24 @@ main() {
 	flock -n 9 || exit 0  # the previous run is still upgrading
 	touch "$SITES_DIR/.zk_push_upgrade_agent"
 
-	local request=""
+	# Holding the lock, a status still Running is from a run that died (reboot, killed).
+	local f
+	for f in "$SITES_DIR"/*/zk_push_upgrade_status.json; do
+		[ -f "$f" ] && grep -q '"status": "Running"' "$f" \
+			&& sed -i 's/"status": "Running"/"status": "Failed"/; s/"message": "[^"]*"/"message": "interrupted: check the log and the site"/' "$f"
+	done
+
+	local request="" site
 	for f in "$SITES_DIR"/*/zk_push_upgrade_request.json; do
-		[ -f "$f" ] && { request="$f"; break; }
+		[ -f "$f" ] || continue
+		site="$(basename "$(dirname "$f")")"
+		if [ -n "$ALLOWED_SITES" ] && [[ " $ALLOWED_SITES " != *" $site "* ]]; then
+			rm -f "$f"  # not allowed to ask: drop it, and say so on that site
+			SITE_DIR="$(dirname "$f")" TAG="" write_status Failed "upgrades are not started from this site"
+			continue
+		fi
+		request="$f"
+		break
 	done
 	[ -n "$request" ] || exit 0
 
@@ -60,13 +82,16 @@ main() {
 	exec >"$SITE_DIR/zk_push_upgrade.log" 2>&1
 
 	[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "not a release tag: $TAG"
+	[ "$(printf '%s\n%s\n' "$MIN_TAG" "$TAG" | sort -V | head -1)" = "$MIN_TAG" ] \
+		|| fail "$TAG is older than $MIN_TAG, the oldest release installed from the site"
 	write_status Running "backing up"
 	echo "$(date '+%F %T') upgrade to $TAG, asked on $(basename "$SITE_DIR")"
 
 	[ -z "$(git -C "$APP" status --porcelain --untracked-files=no)" ] \
 		|| fail "apps/zk_push has local changes: upgrade by hand"
 	PREV="$(git -C "$APP" describe --tags --exact-match 2>/dev/null || git -C "$APP" rev-parse HEAD)"
-	git -C "$APP" fetch -q --tags --force origin || fail "git fetch failed"
+	# No --force: a release tag moved on GitHub makes the fetch fail instead of changing what it installs.
+	git -C "$APP" fetch -q --tags origin || fail "git fetch failed (a release tag may have been moved upstream)"
 	git -C "$APP" rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null || fail "release $TAG not found"
 
 	local sites=() s d

@@ -1,4 +1,4 @@
-# Deployment workbook: zk_push v0.3.4 and the ESP32 pull agent
+# Deployment workbook: zk_push v0.3.5 and the ESP32 pull agent
 
 Order: **test site first, production only after the test has run cleanly for a day.**
 
@@ -6,12 +6,16 @@ Order: **test site first, production only after the test has run cleanly for a d
 |---|---|---|
 | Site | `https://test.nss.sa` | `https://nss.sa` |
 | zk_push today | installed (older version) | **not installed** |
-| What to do | update to v0.3.4, migrate | install v0.3.4 |
+| What to do | update to v0.3.5, migrate | install v0.3.5 |
 
 Every step is done by you; nothing here runs automatically. Tick each box as you go.
 
-What v0.3.4 adds on the site:
-- since v0.3.3: **ZK Push Update**, upgrade from the site (System Managers), once an administrator has
+What v0.3.5 adds on the site:
+- since v0.3.4: upgrade agent hardening (only the sites in `ZK_SITES` may start an upgrade, no release
+  older than v0.3.5, a moved release tag is refused, an interrupted upgrade no longer blocks the page),
+  release notes shown as text, an amended One Punch day is not flagged again, a new install flags the
+  one-punch days already marked;
+- in v0.3.4: **ZK Push Update**, upgrade from the site (System Managers), once an administrator has
   installed the upgrade agent (`deploy/upgrade-agent/README.md`);
 - in v0.3.3: **One Punch** on Attendance: a day with only a clock in or only a clock out is
   flagged, with a comment, when HRMS marks it, so HR can filter the Attendance list on it and check
@@ -58,7 +62,7 @@ touch production beyond the few seconds of the restart (B3).
 - [ ] **A3. Code at the release.**
   ```bash
   cd ~/Projects/zk_push
-  git fetch --tags && git checkout v0.3.4
+  git fetch --tags && git checkout v0.3.5
   ```
 - [ ] **A4. `config.h` exists.** `deploy/esp32/firmware/include/config.h` holds the Wi-Fi password
   and is git-ignored (never commit it). If it is missing:
@@ -88,20 +92,20 @@ directory of the site's `compose.yaml`.
 - [ ] **B1. Backup.**
   - Bench: `bench --site test.nss.sa backup --with-files`
   - Docker: `docker compose exec backend bench --site test.nss.sa backup --with-files`
-- [ ] **B2. Get v0.3.4.**
+- [ ] **B2. Get v0.3.5.**
   - Bench:
     ```bash
-    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.4 && cd ../..
+    cd ~/frappe-bench/apps/zk_push && git fetch --tags && git checkout v0.3.5 && cd ../..
     ```
     (Works from an older tag too; `git pull` does not, as a checked-out tag is not a branch.)
   - Docker (layer the app onto the image the site uses now; replace `IMAGE` with it, e.g. `erp-nss-hrms:v15`):
     ```bash
-    git clone --branch v0.3.4 https://github.com/t1nk333r/zk_push && cd zk_push
-    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.4 .
+    git clone --branch v0.3.5 https://github.com/t1nk333r/zk_push && cd zk_push
+    docker build -f deploy/Containerfile --build-arg BASE_IMAGE=IMAGE -t IMAGE-zkpush-0.3.5 .
     ```
     If the current image already contains an older zk_push, build from the image *without* it
-    (the one in `apps.json` / your base build), or add zk_push v0.3.4 to `apps.json` and rebuild.
-    Then set `IMAGE-zkpush-0.3.4` as the image of **every** service and `docker compose up -d`.
+    (the one in `apps.json` / your base build), or add zk_push v0.3.5 to `apps.json` and rebuild.
+    Then set `IMAGE-zkpush-0.3.5` as the image of **every** service and `docker compose up -d`.
 - [ ] **B3. Migrate and restart.**
   - Bench: `bench --site test.nss.sa migrate`, then restart the web server and workers:
     ```bash
@@ -219,7 +223,7 @@ directory of the site's `compose.yaml`.
   - Bench:
     ```bash
     cd ~/frappe-bench
-    bench get-app --branch v0.3.4 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
+    bench get-app --branch v0.3.5 https://github.com/t1nk333r/zk_push    # skip if apps/zk_push exists (one bench: it does, from Part B)
     bench --site nss.sa install-app zk_push
     bench restart
     ```

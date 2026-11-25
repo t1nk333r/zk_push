@@ -10,5 +10,6 @@ def execute():
 		f"""update `tabAttendance` set `{FIELD}` = 1
 		where docstatus = 1 and status != 'On Leave'
 		and (attendance_request is null or attendance_request = '')
+		and (amended_from is null or amended_from = '')
 		and ((in_time is null) != (out_time is null))"""
 	)

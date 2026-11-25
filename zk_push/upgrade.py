@@ -24,6 +24,9 @@ import zk_push
 
 REPO = "t1nk333r/zk_push"
 TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+# The first release with this page and the agent's checks. Going below it would remove them, and an
+# older release lacks security fixes: the agent refuses it too (ZK_MIN_TAG).
+MIN_TAG = "v0.3.5"
 # The agent runs every minute: older than this, it is not running.
 AGENT_STALE_SECONDS = 5 * 60
 RELEASES_CACHE_SECONDS = 60 * 60
@@ -50,6 +53,10 @@ def agent_seen():
 		return None
 
 
+def version_key(tag):
+	return tuple(int(x) for x in tag[1:].split("."))
+
+
 def releases():
 	"""The last releases on GitHub (newest first), cached for an hour."""
 	cached = frappe.cache.get_value("zk_push_releases")
@@ -61,7 +68,10 @@ def releases():
 		tags = [
 			{"tag": x["tag_name"], "published": (x.get("published_at") or "")[:10], "notes": x.get("body") or ""}
 			for x in r.json()
-			if not x.get("draft") and not x.get("prerelease") and TAG_RE.match(x.get("tag_name") or "")
+			if not x.get("draft")
+			and not x.get("prerelease")
+			and TAG_RE.match(x.get("tag_name") or "")
+			and version_key(x["tag_name"]) >= version_key(MIN_TAG)
 		]
 	except (requests.RequestException, ValueError, KeyError, TypeError):
 		return []  # not cached: try again next time
@@ -97,7 +107,7 @@ def request_upgrade(tag: str) -> dict:
 	if not TAG_RE.match(tag or ""):
 		frappe.throw(_("{0} is not a release tag").format(tag))
 	if tag not in {r["tag"] for r in releases()}:
-		frappe.throw(_("{0} is not one of the releases on GitHub").format(tag))
+		frappe.throw(_("{0} is not one of the releases on GitHub from {1} on").format(tag, MIN_TAG))
 	seen = agent_seen()
 	if seen is None or seen > AGENT_STALE_SECONDS:
 		frappe.throw(_("The upgrade agent is not running on the server; see deploy/upgrade-agent in the README"))

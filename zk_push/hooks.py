@@ -18,7 +18,7 @@ after_migrate = [
 ]
 
 # Remove the scheduled jobs, which would otherwise keep failing against the dropped tables.
-after_install = "zk_push.attendance.setup_fields"
+after_install = "zk_push.attendance.after_install"
 before_uninstall = "zk_push.install.before_uninstall"
 
 # Commands that set a device user's password are for System Managers only (HR Managers may read

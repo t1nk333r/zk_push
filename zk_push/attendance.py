@@ -30,6 +30,13 @@ def setup_fields():
 	create_custom_fields(CUSTOM_FIELDS, update=True)
 
 
+def after_install():
+	"""Flag the One Punch days already marked (on an update the patch does this)."""
+	from zk_push.patches.flag_one_punch_attendance import execute
+
+	execute()
+
+
 def remove_fields():
 	for doctype, fields in CUSTOM_FIELDS.items():
 		for field in fields:
@@ -41,6 +48,7 @@ def one_punch(doc) -> bool:
 		bool(doc.in_time) != bool(doc.out_time)
 		and doc.status != "On Leave"
 		and not doc.get("attendance_request")
+		and not doc.amended_from  # HR cancelled and amended it: already checked
 	)
 
 

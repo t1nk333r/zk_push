@@ -61,7 +61,7 @@ frappe.pages["zk-push-update"].on_page_load = function (wrapper) {
 					<p class="text-muted small">${__("Every site on this server is backed up, migrated and restarted: the site is unavailable for about a minute. Pick an older release to go back.")}</p>`
 					: ""
 			}
-			${latest && latest.notes ? `<h5>${__("What's new in {0}", [esc(latest.tag)])}</h5><div class="small">${frappe.markdown(latest.notes)}</div>` : ""}
+			${latest && latest.notes ? `<h5>${__("What's new in {0}", [esc(latest.tag)])}</h5><div class="small" style="white-space: pre-wrap;">${esc(latest.notes)}</div>` : ""}
 			${s.log ? `<h5>${__("Last upgrade log")}</h5><pre style="max-height: 320px; overflow: auto; font-size: 12px;">${esc(s.log)}</pre>` : ""}
 		`);
 
