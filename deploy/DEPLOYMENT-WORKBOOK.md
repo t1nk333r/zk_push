@@ -17,7 +17,7 @@ What v0.3.6 adds on the site:
   on every day it covers;
 - the agent must be installed by hand once more: copy `deploy/upgrade-agent/release-signers` to
   `~/zk-push-release-signers` on the server and the 0.3.6 agent over the old one (see
-  `deploy/upgrade-agent/README.md`). The 0.3.5 agent does not check signatures;
+  `deploy/upgrade-agent/README.md`);
 - in v0.3.5: upgrade agent hardening (only the sites in `ZK_SITES` may start an upgrade, no release
   older than v0.3.5, a moved release tag is refused, an interrupted upgrade no longer blocks the page),
   release notes shown as text, an amended One Punch day is not flagged again, a new install flags the
