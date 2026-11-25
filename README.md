@@ -297,7 +297,8 @@ on, punches older than *Ignore Punches Before* are dropped, not stored.
 | Discard Instead of Skipping | Drop punches before *Ignore Punches Before* as they arrive instead of storing them. The push equivalent of the pull agent's `--since`; dropped punches can only be recovered from the device |
 | Checkin Log Type | *From Device Status* (default for new devices) sets IN/OUT from the Check-In/Check-Out key pressed on the device. *Leave Blank* lets the Shift Type alternate IN/OUT. Devices that already exist keep their setting |
 | Latitude / Longitude | Only needed if HR Settings → *Allow Geolocation Tracking* is on |
-| Allowed IP Addresses | Optional addresses or networks (`203.0.113.7, 10.0.0.0/24`) the device connects from; requests from anywhere else are refused and change nothing. Set it when the device reaches the site over the internet |
+| Allowed IP Addresses | Addresses or networks (`203.0.113.7, 10.0.0.0/24`) the device connects from; requests from anywhere else are refused and change nothing. A device is enabled only with these, or with *Accept from any address* |
+| Accept from any address | For a device without fixed addresses: anyone who knows its serial number can then send punches for it. Passwords and card numbers are not sent to such a device |
 | Debug Logging | Record every request in ZK Request Log; turn off once working |
 
 Device actions: *View Punches*, *Unmatched Users*, *Retry Unmatched / Error Punches*,
@@ -418,8 +419,9 @@ bench --site <test-site> run-tests --app zk_push            # full suite (ERPNex
 
 - Only enabled serial numbers are accepted; auto-registration is capped at 20 pending devices.
 - The serial number is printed on the device, so it is not a secret: anyone who knows it could post
-  punches. Set **Allowed IP Addresses** on each device that connects over the internet (or allow only
-  those addresses for `/iclock` in nginx). Behind a proxy, the proxy must overwrite
+  punches. A device is only enabled with **Allowed IP Addresses**, or with **Accept from any address**
+  ticked on purpose (or allow only its addresses for `/iclock` in nginx). Employee Checkins show the
+  device's name, not its serial number. Behind a proxy, the proxy must overwrite
   `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $remote_addr;`), otherwise it can be forged.
 - Uploads over 8 MB are refused (413) and the device keeps the data.
 - ZK Request Log masks device user passwords, card numbers and fingerprint templates. Card numbers

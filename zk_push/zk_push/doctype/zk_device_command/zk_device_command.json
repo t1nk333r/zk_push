@@ -31,7 +31,8 @@
    "label": "Command",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Use the Device Commands menu on the ZK Device form. CHECK = re-read server options and upload new logs (use after Reset Log Stamp). LOG = upload new punches. DATA QUERY ATTLOG = re-upload punches for a time range. INFO = report device info. REBOOT = restart the device. Other commands (user changes, clear log, open door, custom) require System Manager."
+   "description": "Use the Device Commands menu on the ZK Device form. CHECK = re-read server options and upload new logs (use after Reset Log Stamp). LOG = upload new punches. DATA QUERY ATTLOG = re-upload punches for a time range. INFO = report device info. REBOOT = restart the device. Other commands (user changes, clear log, open door, custom) require System Manager.",
+   "length": 255
   },
   {
    "fieldname": "column_break_1",
@@ -80,7 +81,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-17 14:00:00.000000",
+ "modified": "2026-11-25 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Device Command",

@@ -272,7 +272,7 @@ class _Context:
 			self.devices[name] = frappe.db.get_value(
 				"ZK Device",
 				name,
-				["import_from", "log_type_mode", "latitude", "longitude"],
+				["device_name", "import_from", "log_type_mode", "latitude", "longitude"],
 				as_dict=True,
 			) or frappe._dict()
 		return self.devices[name]
@@ -369,7 +369,9 @@ def _evaluate(punch, context: _Context) -> dict:
 	checkin.employee = employee.name
 	checkin.time = punch.punch_time
 	checkin.log_type = protocol.map_log_type(punch.device_status, device.log_type_mode)
-	checkin.device_id = punch.device
+	# The name, not the serial: employees can read their own checkins, and the serial lets anyone talk
+	# to the iclock endpoints as that device.
+	checkin.device_id = device.device_name or punch.device
 	if device.latitude or device.longitude:
 		checkin.latitude = device.latitude
 		checkin.longitude = device.longitude

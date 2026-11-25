@@ -3,18 +3,26 @@
 With the agent installed, a System Manager upgrades zk_push from the page **ZK Push Update** (search
 for it, or the link on About ZK Push): pick a release, click **Upgrade**. The page only writes a
 request file into the site folder; within a minute the agent, run by cron as the bench user, backs up
-and migrates every site with zk_push, restarts the bench, and shows the result and the log on the page.
+every site with zk_push, puts them in maintenance mode with the scheduler paused, migrates them,
+restarts the bench, and shows the result and the log on the page.
 If the install or a migrate fails it goes back to the previous version, and restores the database of
 every site it had already migrated (from a backup taken just before). The site itself never runs
 commands or sudo.
 
 All sites on a bench share the app code: an upgrade asked for on one site upgrades them all. So a
-System Manager of any site can change the code every site runs; limit that with `ZK_SITES` (step 3).
+System Manager of any site can change the code every site runs; limit that with `ZK_SITES` (step 3) to
+the site whose System Managers you trust with every site (production, not a test site on the same
+bench). The log on that site's page names every site and its backups.
 
 It only installs releases from v0.3.7 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
 It installs only a release tag signed with the zk_push release key (`ZK_SIGNERS`), so a GitHub account
 that is compromised, and publishes a tag without the key, cannot push code to the server.
-It refuses a release tag that was moved on GitHub after it was first fetched.
+It refuses a release tag that was moved on GitHub after it was first fetched, a signed older release
+pushed again under a new name, and any release older than the one installed unless the administrator
+sets `ZK_ALLOW_DOWNGRADE=1` on the crontab line. It fetches from the app's `upstream` remote (as
+`bench get-app` names it), or `origin`; `ZK_REMOTE` sets another.
+The signature protects against a GitHub-side attacker, not against code already running as the bench
+user (a compromised site can change `apps/` itself).
 
 ## Install (once, by an administrator, as root or with sudo)
 
@@ -47,12 +55,14 @@ The commands are for the bench at `/home/nss/frappe-bench`, user `nss`. Change b
    the sites whose System Managers may start an upgrade; leave it out to allow every site. A request
    from another site is dropped, and that site's page says so.
 
-       (sudo -u nss crontab -l 2>/dev/null; echo '* * * * * ZK_SITES=test.nss.sa /home/nss/zk-push-upgrade.sh') | sudo -u nss crontab -
+       (sudo -u nss crontab -l 2>/dev/null; echo '* * * * * ZK_SITES=nss.sa /home/nss/zk-push-upgrade.sh') | sudo -u nss crontab -
 
 4. Within a minute, ZK Push Update shows **Upgrade agent: running**.
 
-If the server restarts during an upgrade, the next run marks it Failed (interrupted): check the log
-and the site, then start it again. The agent refuses to upgrade if `apps/zk_push` has local changes. Its log of the last upgrade is shown on
+If the server restarts during an upgrade, the next run marks it Failed (interrupted) and creates
+`sites/.zk_push_upgrade.needs_attention`: no upgrade starts while it is there. Check the log, the code
+(`git -C apps/zk_push describe --tags`) and the sites (restore a backup if a migrate was cut short; take
+them out of maintenance mode and resume the scheduler if still set), then remove that file. The agent refuses to upgrade if `apps/zk_push` has local changes. Its log of the last upgrade is shown on
 the page (and kept in `sites/<site>/zk_push_upgrade.log`). If a release changes the agent, its notes say
 so: repeat step 1.
 

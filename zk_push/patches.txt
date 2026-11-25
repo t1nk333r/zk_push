@@ -2,3 +2,4 @@
 
 [post_model_sync]
 zk_push.patches.flag_one_punch_attendance
+zk_push.patches.device_access

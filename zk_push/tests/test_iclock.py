@@ -52,7 +52,7 @@ class TestIclock(FrappeTestCase):
 		frappe.db.delete("Error Log", {"method": ("like", f"%{SN}%")})
 
 	def enable_device(self, **values):
-		frappe.db.set_value("ZK Device", SN, {"enabled": 1, **values})
+		frappe.db.set_value("ZK Device", SN, {"enabled": 1, "accept_any_ip": 1, **values})
 
 	def test_unknown_device_is_registered_disabled(self):
 		status, _text = device_request("cdata", options="all")
@@ -77,7 +77,7 @@ class TestIclock(FrappeTestCase):
 
 	def test_punch_creates_checkin_and_ignores_resend(self):
 		device_request("cdata")
-		self.enable_device()
+		self.enable_device(device_name="Front door")
 		body = "7001\t2026-11-05 08:00:00\t0\t1\t0\n9999\t2026-11-05 08:01:00\t0\t1\t0\nbroken line\n"
 
 		status, text = device_request("cdata", "POST", body, table="ATTLOG", Stamp="100")
@@ -91,7 +91,7 @@ class TestIclock(FrappeTestCase):
 		checkin = frappe.get_doc("Employee Checkin", created.employee_checkin)
 		self.assertEqual(checkin.employee, self.employee)
 		self.assertEqual(checkin.time, datetime(2026, 11, 5, 8, 0, 0))
-		self.assertEqual(checkin.device_id, SN)
+		self.assertEqual(checkin.device_id, "Front door")  # the name, not the serial: employees see it
 		self.assertEqual(checkin.log_type, "IN")  # new devices default to From Device Status
 
 		self.assertEqual(frappe.db.get_value("ZK Punch", f"{SN}-9999-20261105080100", "status"), "Unmatched")
@@ -324,6 +324,17 @@ class TestIclock(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("ZK Device", SN, "last_ip"), "10.0.0.7")
 		self.assertEqual(device_request("getrequest", remote_addr="192.0.2.9")[0], 200)
 
+	def test_enabled_without_addresses_is_refused(self):
+		device_request("cdata")
+		frappe.db.set_value("ZK Device", SN, "enabled", 1)  # enabled outside the form
+		self.assertEqual(device_request("getrequest"), (403, "ERROR: no allowed addresses"))
+		device = frappe.get_doc("ZK Device", SN)
+		with self.assertRaises(frappe.ValidationError):
+			device.save()
+		device.accept_any_ip = 1
+		device.save()
+		self.assertEqual(device_request("getrequest")[0], 200)
+
 	def test_oversized_upload_is_refused(self):
 		device_request("cdata")
 		self.enable_device()
@@ -413,6 +424,7 @@ class TestIclock(FrappeTestCase):
 
 	def test_device_passwords_are_for_system_managers(self):
 		device_request("cdata")
+		frappe.db.set_value("ZK Device", SN, "allowed_ips", "127.0.0.1")
 		from zk_push.zk_push.doctype.zk_device_command import zk_device_command
 
 		secret = frappe.get_doc(

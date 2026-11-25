@@ -38,7 +38,7 @@ class TestIclockHardening(FrappeTestCase):
 			frappe.db.delete(doctype, {"device": SN})
 		frappe.db.delete("ZK Device", {"name": SN})
 		device_request("cdata")  # registers the device, disabled
-		frappe.db.set_value("ZK Device", SN, "enabled", 1)
+		frappe.db.set_value("ZK Device", SN, {"enabled": 1, "accept_any_ip": 1})
 
 	def logs(self):
 		return frappe.get_all(
@@ -64,7 +64,7 @@ class TestIclockHardening(FrappeTestCase):
 		self.assertFalse(log.request_body)
 
 	def test_command_reply_is_masked_in_the_log(self):
-		frappe.db.set_value("ZK Device", SN, "debug_logging", 1)
+		frappe.db.set_value("ZK Device", SN, {"debug_logging": 1, "allowed_ips": "127.0.0.1"})
 		frappe.get_doc(
 			{
 				"doctype": "ZK Device Command",
@@ -79,6 +79,19 @@ class TestIclockHardening(FrappeTestCase):
 		self.assertIn("Passwd=***", response)
 		self.assertNotIn("4321", response)
 		self.assertNotIn("998877", response)
+
+	def test_credentials_need_allowed_addresses(self):
+		command = {
+			"doctype": "ZK Device Command",
+			"device": SN,
+			"command": "DATA UPDATE USERINFO PIN=1\tName=A\tPasswd=\tCard=998877",
+		}
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc(command).insert()
+		# No password and no card: nothing to steal.
+		frappe.get_doc({**command, "command": "DATA UPDATE USERINFO PIN=1\tName=A\tPasswd=\tCard="}).insert()
+		frappe.db.set_value("ZK Device", SN, "allowed_ips", "127.0.0.1")
+		frappe.get_doc(command).insert()
 
 	def test_photo_upload_is_logged_by_size_only(self):
 		frappe.db.set_value("ZK Device", SN, "debug_logging", 1)

@@ -24,3 +24,10 @@ class ZKDevice(Document):
 			self.device_name = self.serial_no
 		if self.enabled:
 			self.auto_registered = 0
+			if not (self.allowed_ips or "").strip() and not self.accept_any_ip:
+				frappe.throw(
+					_(
+						"Fill in Allowed IP Addresses, or tick Accept from any address: the serial number alone "
+						"is no password."
+					)
+				)

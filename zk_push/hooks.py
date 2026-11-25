@@ -45,6 +45,9 @@ doc_events = {
 		"on_submit": "zk_push.attendance.on_attendance_request_submit",
 		"on_cancel": "zk_push.attendance.on_attendance_request_cancel",
 	},
+	"Leave Application": {
+		"on_submit": "zk_push.attendance.on_leave_application_submit",
+	},
 }
 
 # Safety net: pick up punches whose background job was lost (e.g. worker restart).

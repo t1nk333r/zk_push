@@ -8,6 +8,7 @@ Request if the employee worked, or leave it. An approved Attendance Request clea
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, date_diff, getdate
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 FIELD = "zk_one_punch"
@@ -65,29 +66,57 @@ def on_submit(doc, method=None):
 		doc.add_comment("Comment", _("One punch: no {0}. HR needs to check this day.").format(missing))
 
 
+def request_days(doc) -> list:
+	"""The days of an Attendance Request HRMS acts on (AttendanceRequest.should_mark_attendance): not a
+	holiday unless the request includes holidays, and not on approved leave."""
+	from erpnext.setup.doctype.employee.employee import is_holiday
+
+	days = []
+	for i in range(date_diff(doc.to_date, doc.from_date) + 1):
+		day = getdate(add_days(doc.from_date, i))
+		if not doc.include_holidays and is_holiday(doc.employee, day, raise_exception=False):
+			continue
+		if doc.has_leave_record(day):
+			continue
+		days.append(day)
+	return days
+
+
 def on_attendance_request_submit(doc, method=None):
 	"""An approved request means HR checked those days. HRMS updates the Attendance with db_set (no
 	validate), and leaves it alone when it already has the requested status: clear the flag here."""
-	frappe.db.sql(
-		f"""update `tabAttendance` set `{FIELD}` = 0
-		where employee = %s and attendance_date between %s and %s and docstatus = 1 and `{FIELD}` = 1""",
-		(doc.employee, doc.from_date, doc.to_date),
-	)
+	days = request_days(doc)
+	if days:
+		frappe.db.sql(
+			f"""update `tabAttendance` set `{FIELD}` = 0
+			where employee = %s and attendance_date in %s and docstatus = 1 and `{FIELD}` = 1""",
+			(doc.employee, tuple(days)),
+		)
 
 
 def on_attendance_request_cancel(doc, method=None):
 	"""Flag again the days the request cleared. HRMS cancels the Attendance it linked to the request;
-	the other days of the range are still the ones marked from the punches."""
+	the other days are still the ones marked from the punches."""
+	days = request_days(doc)
+	if not days:
+		return
 	for name in frappe.get_all(
 		"Attendance",
-		filters={
-			"employee": doc.employee,
-			"attendance_date": ["between", [doc.from_date, doc.to_date]],
-			"docstatus": 1,
-			FIELD: 0,
-		},
+		filters={"employee": doc.employee, "attendance_date": ["in", days], "docstatus": 1, FIELD: 0},
 		pluck="name",
 	):
 		attendance = frappe.get_doc("Attendance", name)
 		if one_punch(attendance):
 			attendance.db_set(FIELD, 1, update_modified=False)
+
+
+def on_leave_application_submit(doc, method=None):
+	"""Approved leave turns the day's Attendance into On Leave with db_set (no validate): clear the
+	flag, as validate would. Cancelling the leave cancels that Attendance, so nothing to restore."""
+	if doc.status != "Approved":
+		return
+	frappe.db.sql(
+		f"""update `tabAttendance` set `{FIELD}` = 0
+		where leave_application = %s and status = 'On Leave' and docstatus = 1 and `{FIELD}` = 1""",
+		doc.name,
+	)

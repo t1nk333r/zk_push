@@ -20,6 +20,7 @@
   "longitude",
   "section_break_access",
   "allowed_ips",
+  "accept_any_ip",
   "section_break_debug",
   "debug_logging",
   "section_break_status",
@@ -129,7 +130,14 @@
    "fieldname": "allowed_ips",
    "fieldtype": "Small Text",
    "label": "Allowed IP Addresses",
-   "description": "Optional. Addresses or networks the device connects from, separated by commas or lines (e.g. 203.0.113.7, 10.0.0.0/24). Requests from anywhere else are refused. Leave empty to accept any address. The serial number is printed on the device, so set this when the device connects over the internet. Behind a proxy, the proxy must overwrite X-Forwarded-For."
+   "description": "Addresses or networks the device connects from, separated by commas or lines (e.g. 203.0.113.7, 10.0.0.0/24). Requests from anywhere else are refused. The serial number is printed on the device, so it is no password: set this when the device connects over the internet. Behind a proxy, the proxy must overwrite X-Forwarded-For."
+  },
+  {
+   "default": "0",
+   "fieldname": "accept_any_ip",
+   "fieldtype": "Check",
+   "label": "Accept from any address",
+   "description": "Accept this device's requests from any address, when Allowed IP Addresses is empty (e.g. a device on a changing address). Anyone who knows the serial number can then send punches for it."
   },
   {
    "fieldname": "section_break_debug",
@@ -210,7 +218,7 @@
    "group": "Debugging"
   }
  ],
- "modified": "2026-11-18 12:00:00.000000",
+ "modified": "2026-11-25 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ZK Push",
  "name": "ZK Device",

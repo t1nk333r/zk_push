@@ -167,6 +167,7 @@ def attendance_rows(filters):
 			"in_time",
 			"out_time",
 			"attendance_request",
+			"zk_one_punch",
 		],
 		order_by="employee asc, attendance_date asc",
 		limit_page_length=0,
@@ -179,7 +180,10 @@ def time_card_row(r, shift, unpaid_leave, overtime_after, missing_punch):
 	{leave type: part of the day not paid}, see unpaid_shares."""
 	status, notice = r.status, ""
 	clock_in, clock_out = r.in_time, r.out_time
-	approved = bool(r.attendance_request)
+	# HR approved the day: an Attendance Request linked to it, or One Punch cleared (a request that left the
+	# status as it was, an amended Attendance). Not on half-day leave: HRMS creates that Attendance without
+	# validate, so its flag was never set. 0, not missing: rows built without the field are not approved.
+	approved = bool(r.attendance_request) or (r.get("zk_one_punch") == 0 and not r.leave_type)
 	half_leave = status == "Half Day" and r.leave_type
 	unpaid = unpaid_leave.get(r.leave_type, 0) if r.leave_type else 0
 

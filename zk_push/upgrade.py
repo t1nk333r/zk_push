@@ -11,7 +11,8 @@ Files (none of them served by nginx, which only serves sites/<site>/public):
   sites/<site>/zk_push_upgrade_request.json   written here, removed by the agent when it starts
   sites/<site>/zk_push_upgrade_status.json    written by the agent
   sites/<site>/zk_push_upgrade.log            written by the agent
-  sites/.zk_push_upgrade_agent                touched by the agent on every run (is it installed?)"""
+  sites/.zk_push_upgrade_agent                touched by the agent on every run (is it installed?)
+  sites/.zk_push_upgrade.needs_attention      left by the agent after an interrupted upgrade"""
 
 import json
 import os
@@ -114,6 +115,10 @@ def request_upgrade(tag: str) -> dict:
 	seen = agent_seen()
 	if seen is None or seen > AGENT_STALE_SECONDS:
 		frappe.throw(_("The upgrade agent is not running on the server; see deploy/upgrade-agent in the README"))
+	if os.path.exists(os.path.join(frappe.local.sites_path, ".zk_push_upgrade.needs_attention")):
+		frappe.throw(
+			_("An earlier upgrade was interrupted: an administrator must check the server first (see the log below)")
+		)
 	status = read_json(site_file("zk_push_upgrade_status.json")) or {}
 	if status.get("status") == "Running":
 		frappe.throw(_("An upgrade is already running"))

@@ -29,8 +29,9 @@ MAX_LOGGED_BODY = 64 * 1024
 MAX_USERS_PER_REQUEST = 10000
 # Command results handled per devicecmd request (one per queued command is normal).
 MAX_COMMAND_RESULTS = 100
-# Unreadable ATTLOG lines kept in the Error Log per request (each line is at most 500 characters).
-MAX_LOGGED_INVALID_LINES = 1000
+# Unreadable ATTLOG lines kept in the Error Log per request (each line is at most 500 characters):
+# enough to see what went wrong, without a large log entry on every bad upload.
+MAX_LOGGED_INVALID_LINES = 50
 # Largest upload accepted. A full history of 100,000 punches is about 4 MB; devices split bigger ones.
 MAX_BODY_BYTES = 8 * 1024 * 1024
 # Uploads whose body is logged as text; others (ATTPHOTO, BIOPHOTO, ...) are photos or templates.
@@ -49,6 +50,7 @@ DEVICE_FIELDS = [
 	"import_from",
 	"discard_before_import",
 	"allowed_ips",
+	"accept_any_ip",
 ]
 
 
@@ -123,6 +125,10 @@ def _handle(ex: _Exchange):
 	if not protocol.ip_allowed(_client_ip(request), device.allowed_ips):
 		ex.refused = True
 		return ex.respond("ERROR: address not allowed", 403)
+	# Enabled with neither a list nor "Accept from any address" (enabled outside the form): refuse too.
+	if device.enabled and not (device.allowed_ips or "").strip() and not device.accept_any_ip:
+		ex.refused = True
+		return ex.respond("ERROR: no allowed addresses", 403)
 
 	_touch(device, request)
 	if not device.enabled:

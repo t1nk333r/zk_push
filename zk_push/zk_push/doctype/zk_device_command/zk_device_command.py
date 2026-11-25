@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Abdulrahman Aloqayli
 # SPDX-License-Identifier: MIT
 
+import re
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -16,6 +18,8 @@ SAFE_COMMANDS = ("CHECK", "INFO", "LOG", "REBOOT")
 LOCKED_FIELDS = ("device", "command", "status", "sent_at", "completed_at", "return_code", "response")
 # Add / Update User carries the device user's password; only System Managers may read those commands.
 SECRET_MARKER = "Passwd="
+# A password or card number with a value, in a USERINFO line.
+CREDENTIAL_RE = re.compile(r"(?:^|\s)(?:Passwd|Card)=\S")
 
 
 class ZKDeviceCommand(Document):
@@ -32,6 +36,16 @@ class ZKDeviceCommand(Document):
 		safe = self.command in SAFE_COMMANDS or protocol.is_reupload_command(self.command)
 		if not safe and "System Manager" not in frappe.get_roles():
 			frappe.throw(_("Only System Managers can send custom commands."))
+		if CREDENTIAL_RE.search(self.command) and not (
+			frappe.db.get_value("ZK Device", self.device, "allowed_ips") or ""
+		).strip():
+			# Whoever knows the serial can poll for it from anywhere and get the password or card number.
+			frappe.throw(
+				_(
+					"A password or card number is only sent to a device with Allowed IP Addresses. "
+					"Fill them in on {0}."
+				).format(self.device)
+			)
 		self.status = "Pending"
 
 

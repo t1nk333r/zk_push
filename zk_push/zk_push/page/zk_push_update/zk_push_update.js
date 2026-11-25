@@ -60,7 +60,7 @@ frappe.pages["zk-push-update"].on_page_load = function (wrapper) {
 						<select class="form-control" style="max-width: 260px;">${options}</select>
 						<button class="btn btn-primary btn-sm" ${busy || !agent_ok ? "disabled" : ""}>${__("Upgrade")}</button>
 					</div>
-					<p class="text-muted small">${__("Every site on this server is backed up, migrated and restarted: the site is unavailable for about a minute. Pick an older release to go back.")}</p>`
+					<p class="text-muted small">${__("Every site on this server is backed up, migrated and restarted: the sites are unavailable for a few minutes. Going back to an older release has to be allowed on the server first.")}</p>`
 					: ""
 			}
 			${latest && latest.notes ? `<h5>${__("What's new in {0}", [esc(latest.tag)])}</h5><div class="small" style="white-space: pre-wrap;">${esc(latest.notes)}</div>` : ""}
@@ -69,7 +69,7 @@ frappe.pages["zk-push-update"].on_page_load = function (wrapper) {
 
 		body.find("button.btn-primary").on("click", () => {
 			const tag = body.find("select").val();
-			frappe.confirm(__("Upgrade every site on this server to {0}? They are unavailable for about a minute.", [esc(tag)]), () =>
+			frappe.confirm(__("Upgrade every site on this server to {0}? They are unavailable for a few minutes.", [esc(tag)]), () =>
 				frappe.call({
 					method: "zk_push.upgrade.request_upgrade",
 					args: { tag },
