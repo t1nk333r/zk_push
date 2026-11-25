@@ -43,6 +43,7 @@ doc_events = {
 	},
 	"Attendance Request": {
 		"on_submit": "zk_push.attendance.on_attendance_request_submit",
+		"on_cancel": "zk_push.attendance.on_attendance_request_cancel",
 	},
 }
 

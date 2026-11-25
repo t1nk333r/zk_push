@@ -73,3 +73,21 @@ def on_attendance_request_submit(doc, method=None):
 		where employee = %s and attendance_date between %s and %s and docstatus = 1 and `{FIELD}` = 1""",
 		(doc.employee, doc.from_date, doc.to_date),
 	)
+
+
+def on_attendance_request_cancel(doc, method=None):
+	"""Flag again the days the request cleared. HRMS cancels the Attendance it linked to the request;
+	the other days of the range are still the ones marked from the punches."""
+	for name in frappe.get_all(
+		"Attendance",
+		filters={
+			"employee": doc.employee,
+			"attendance_date": ["between", [doc.from_date, doc.to_date]],
+			"docstatus": 1,
+			FIELD: 0,
+		},
+		pluck="name",
+	):
+		attendance = frappe.get_doc("Attendance", name)
+		if one_punch(attendance):
+			attendance.db_set(FIELD, 1, update_modified=False)

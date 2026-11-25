@@ -50,21 +50,28 @@ fail() {
 
 # Back to the previous code and, for the sites in $1 (the ones a migrate touched), the database from
 # the backup taken just before. Writes since then are lost; devices resend punches after their stamp,
-# which goes back with the database. Prints what could not be restored.
+# which goes back with the database. Sets ROLLBACK_FAILED to what could not be put back.
 rollback() {
-	local failed="" s
+	local s
+	ROLLBACK_FAILED=""
 	echo "== going back to $PREV"
-	git -C "$APP" checkout -q "$PREV" && "$BENCH/env/bin/python" -m pip install -q -e "$APP"
+	git -C "$APP" checkout -q "$PREV" && "$BENCH/env/bin/python" -m pip install -q -e "$APP" \
+		|| ROLLBACK_FAILED=" the code"
 	for s in ${1:-}; do
 		echo "== restore $s from ${BACKUP[$s]}"
 		if gunzip -c "${BACKUP[$s]}" | bench --site "$s" mariadb; then
 			bench --site "$s" clear-cache
 		else
-			failed+=" $s"
+			ROLLBACK_FAILED+=" $s"
 		fi
 	done
 	$RESTART
-	ROLLBACK_FAILED="$failed"
+}
+
+# After rollback: $1 what failed, $2 what was restored besides the code.
+fail_back() {
+	[ -z "$ROLLBACK_FAILED" ] || fail "$1; going back to $PREV failed for$ROLLBACK_FAILED: fix by hand"
+	fail "$1; back on $PREV${2:-}"
 }
 
 # One function, so bash has read all of it before the checkout replaces this file's copy in the app.
@@ -112,10 +119,12 @@ main() {
 	PREV="$(git -C "$APP" describe --tags --exact-match 2>/dev/null || git -C "$APP" rev-parse HEAD)"
 	# No --force: a release tag moved on GitHub makes the fetch fail instead of changing what it installs.
 	git -C "$APP" fetch -q --tags origin || fail "git fetch failed (a release tag may have been moved upstream)"
-	git -C "$APP" rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null || fail "release $TAG not found"
+	local commit
+	commit="$(git -C "$APP" rev-parse -q --verify "refs/tags/$TAG^{commit}")" || fail "release $TAG not found"
 	# Only a tag signed with the release key: a GitHub account or token alone cannot make one.
 	git -C "$APP" -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$SIGNERS" verify-tag "$TAG" \
 		|| fail "release $TAG is not signed with the release key; nothing was changed"
+	echo "verified $TAG: $commit"
 
 	local sites=() s d
 	for d in "$SITES_DIR"/*/; do
@@ -127,30 +136,30 @@ main() {
 	echo "sites: ${sites[*]}"
 
 	declare -gA BACKUP
+	local mark="$SITES_DIR/.zk_push_upgrade.backup"
 	for s in "${sites[@]}"; do
 		echo "== backup $s"
+		touch "$mark"
 		bench --site "$s" backup || fail "backup of $s failed; nothing was changed"
-		BACKUP[$s]="$(ls -t "$SITES_DIR/$s"/private/backups/*-database.sql.gz 2>/dev/null | head -1)"
+		# The one just made, not an older one (or one a scheduled backup made meanwhile, before it).
+		BACKUP[$s]="$(find "$SITES_DIR/$s/private/backups" -maxdepth 1 -name '*-database.sql.gz' -newer "$mark" \
+			-printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
 		[ -n "${BACKUP[$s]}" ] || fail "backup of $s not found; nothing was changed"
 	done
 
 	echo "== $PREV -> $TAG"
 	write_status Running "migrating"
-	git -C "$APP" checkout -q "$TAG" || fail "checkout of $TAG failed; nothing was changed"
-	"$BENCH/env/bin/python" -m pip install -q -e "$APP" || { rollback ""; fail "install failed; back on $PREV"; }
+	# The commit verified above, not the tag name again.
+	git -C "$APP" checkout -q "$commit" || fail "checkout of $TAG failed; nothing was changed"
+	"$BENCH/env/bin/python" -m pip install -q -e "$APP" || { rollback ""; fail_back "install failed"; }
 	if find "$APP/zk_push/public" -type f ! -name .gitkeep | grep -q .; then
-		bench build --app zk_push || { rollback ""; fail "asset build failed; back on $PREV"; }
+		bench build --app zk_push || { rollback ""; fail_back "asset build failed"; }
 	fi
 	local migrated=""
 	for s in "${sites[@]}"; do
 		echo "== migrate $s"
 		migrated+=" $s"  # a failed migrate may have changed part of the database: restore it too
-		bench --site "$s" migrate || {
-			rollback "$migrated"
-			[ -z "$ROLLBACK_FAILED" ] \
-				|| fail "migrate of $s failed; back on $PREV, but restoring$ROLLBACK_FAILED failed: restore by hand"
-			fail "migrate of $s failed; back on $PREV, databases restored from the backups"
-		}
+		bench --site "$s" migrate || { rollback "$migrated"; fail_back "migrate of $s failed" ", databases restored from the backups"; }
 		bench --site "$s" clear-cache
 	done
 
