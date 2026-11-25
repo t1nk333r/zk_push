@@ -11,7 +11,7 @@ commands or sudo.
 All sites on a bench share the app code: an upgrade asked for on one site upgrades them all. So a
 System Manager of any site can change the code every site runs; limit that with `ZK_SITES` (step 3).
 
-It only installs releases from v0.3.6 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
+It only installs releases from v0.3.7 on (`ZK_MIN_TAG`): older ones lack its checks or security fixes.
 It installs only a release tag signed with the zk_push release key (`ZK_SIGNERS`), so a GitHub account
 that is compromised, and publishes a tag without the key, cannot push code to the server.
 It refuses a release tag that was moved on GitHub after it was first fetched.
@@ -31,6 +31,9 @@ The commands are for the bench at `/home/nss/frappe-bench`, user `nss`. Change b
 
        sudo -u nss cp /home/nss/frappe-bench/apps/zk_push/deploy/upgrade-agent/release-signers /home/nss/zk-push-release-signers
 
+   It is also attached to each release as `zk-push-release-signers`. Check the key before you trust it:
+   `cut -d' ' -f3- /home/nss/zk-push-release-signers | ssh-keygen -lf -` must show
+   `SHA256:tCx1NyI1o9PtFE22JR11d5GzhJ3gIe4XZeNJGJCEcRA`.
    Without this file the agent installs nothing and says so in the log.
 
 2. Let the bench user restart the bench, and nothing else (check the path with `which supervisorctl`;

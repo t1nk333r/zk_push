@@ -23,7 +23,7 @@ set -uo pipefail
 
 BENCH="${ZK_BENCH:-$HOME/frappe-bench}"
 RESTART="${ZK_RESTART:-sudo -n /usr/bin/supervisorctl restart frappe-bench-web: frappe-bench-workers:}"
-MIN_TAG="${ZK_MIN_TAG:-v0.3.6}"
+MIN_TAG="${ZK_MIN_TAG:-v0.3.7}"
 SIGNERS="${ZK_SIGNERS:-$HOME/zk-push-release-signers}"
 ALLOWED_SITES="${ZK_SITES:-}"
 APP="$BENCH/apps/zk_push"
