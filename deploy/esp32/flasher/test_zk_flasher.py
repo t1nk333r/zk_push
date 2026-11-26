@@ -6,10 +6,14 @@
   python -m unittest -v test_zk_flasher     (in deploy/esp32/flasher, with requirements.txt installed)
 """
 
+import io
 import struct
+import tempfile
 import unittest
+import zipfile
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import zk_flasher as z
 
@@ -160,6 +164,75 @@ class UsbProblem(unittest.TestCase):
 	def test_no_board(self):
 		self.assertIn("another cable", z.usb_problem([("USB Input Device", "USB\\VID_046D&PID_C52B\\5&1", 0)]))
 		self.assertIn("another cable", z.usb_problem([]))
+
+
+def release(tag, *assets, draft=False, prerelease=False):
+	return {
+		"tag_name": tag,
+		"draft": draft,
+		"prerelease": prerelease,
+		"assets": [{"name": a, "browser_download_url": f"https://example.com/{tag}/{a}"} for a in assets],
+	}
+
+
+def release_zip(**files):
+	out = io.BytesIO()
+	with zipfile.ZipFile(out, "w") as z:
+		for name, data in files.items():
+			z.writestr(name, data)
+	return out.getvalue()
+
+
+class Updates(unittest.TestCase):
+	def test_newest_release(self):
+		releases = [
+			release("v0.5.0", "zk-agent-setup-windows.zip"),  # an app release carrying the tool: not an update
+			release("esp32-setup-4", draft=True),
+			release("esp32-setup-5", prerelease=True),
+			release("esp32-setup-3", "zk-agent-setup-windows.zip"),
+			release("esp32-setup-2"),
+		]
+		version, assets = z.newest_release(releases, current=2)
+		self.assertEqual(version, 3)
+		self.assertEqual(assets, {"zk-agent-setup-windows.zip": "https://example.com/esp32-setup-3/zk-agent-setup-windows.zip"})
+		self.assertIsNone(z.newest_release(releases, current=3))
+
+	def test_checksum_of(self):
+		sums = "AB12  zk-agent-setup-linux.zip\ncd34 *zk-agent-setup-windows.zip\n"
+		self.assertEqual(z.checksum_of(sums, "zk-agent-setup-windows.zip"), "cd34")
+		self.assertEqual(z.checksum_of(sums, "zk-agent-setup-linux.zip"), "ab12")
+		self.assertIsNone(z.checksum_of(sums, "other.zip"))
+
+	def test_apply_update(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			exe = Path(tmp, "zk-agent-setup.exe")
+			exe.write_bytes(b"old app")
+			Path(tmp, "zk-agent.bin").write_bytes(b"old image")
+			Path(tmp, "zk-agent-setup.exe.old").write_bytes(b"older app")
+			archive = release_zip(**{"zk-agent-setup.exe": b"new app", "zk-agent.bin": b"new image", "README.md": b"read me", "../escape": b"x"})
+			z.apply_update(archive, exe)
+			self.assertEqual(exe.read_bytes(), b"new app")
+			self.assertEqual(Path(tmp, "zk-agent-setup.exe.old").read_bytes(), b"old app")
+			self.assertEqual(Path(tmp, "zk-agent.bin").read_bytes(), b"new image")
+			self.assertEqual(Path(tmp, "README.md").read_bytes(), b"read me")
+			self.assertFalse(Path(tmp).parent.joinpath("escape").exists())
+			self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["README.md", "zk-agent-setup.exe", "zk-agent-setup.exe.old", "zk-agent.bin"])
+
+	def test_apply_update_keeps_renamed_app(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			exe = Path(tmp, "ZK setup.exe")  # renamed by the user: the new app keeps that name
+			exe.write_bytes(b"old app")
+			z.apply_update(release_zip(**{"zk-agent-setup.exe": b"new app"}), exe)
+			self.assertEqual(exe.read_bytes(), b"new app")
+			self.assertFalse(Path(tmp, "zk-agent-setup.exe").exists())
+
+	def test_update_without_app_is_refused(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			exe = Path(tmp, "zk-agent-setup")
+			exe.write_bytes(b"old app")
+			with self.assertRaisesRegex(ValueError, "no app"):
+				z.apply_update(release_zip(**{"zk-agent.bin": b"image"}), exe)
+			self.assertEqual(exe.read_bytes(), b"old app")
 
 
 if __name__ == "__main__":

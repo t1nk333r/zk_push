@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Abdulrahman Aloqayli
+# SPDX-License-Identifier: MIT
 # The Arduino default (4 MB, two app slots for a future OTA) with the unused SPIFFS replaced by
 # "zkcfg", the settings the setup tool writes. The tool reads these offsets from the image, so it
 # never overwrites "nvs" (the upload position) when it installs a new firmware.

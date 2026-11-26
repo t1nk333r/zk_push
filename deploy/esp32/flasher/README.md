@@ -15,7 +15,8 @@ From the GitHub release (or the `esp32-firmware` workflow run): `zk-agent-setup-
   `uucp` group (Arch) or `dialout` (Debian/Ubuntu), then log out and in.
 
 From source instead (Python 3.13+ with tkinter): `pip install -r requirements.txt`, then
-`python zk_flasher.py [zk-agent.bin]`.
+`python zk_flasher.py [zk-agent.bin]`. To build the app yourself: `pip install pyinstaller`, then
+`python build_app.py` (writes `dist/`).
 
 ## Use
 
@@ -49,7 +50,22 @@ The ZK Device must exist and be enabled on the site; until then the log shows
   since the date (the site ignores punches it already has). **Send all punches again** does the
   same for the same site.
 - **Show board log** resets the board and shows what it is doing.
+- **Updates of this app**: it looks for a newer version when it starts (and on **Check for
+  updates**) and asks before installing it. The download is checked against the release's
+  checksums; the new app and `zk-agent.bin` replace the old ones in the same folder, and the app
+  restarts. Version 1 has no updater: replace it by hand once.
+
+## Publishing a version
+
+Bump `VERSION` in `zk_flasher.py`, describe the changes in `RELEASE.md`, merge, then push the tag
+`esp32-setup-<VERSION>` from main: CI builds both packages and publishes the release (never marked
+Latest, and not offered to sites as an upgrade, which only take `v*` releases). The apps out there
+pick it up on their next start.
 
 The settings, including the Wi-Fi password and Comm Key, sit in the board's flash in plain text:
 anyone with the board and a USB cable can read them. Give the board its own or a guest Wi-Fi
 network and mount it out of reach.
+
+---
+
+Copyright (c) 2026 Abdulrahman Aloqayli. MIT License (`license.txt` in the repository).

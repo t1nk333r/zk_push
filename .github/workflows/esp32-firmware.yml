@@ -1,12 +1,13 @@
 # ESP32 pull agent: protocol unit tests and the firmware build (zk-agent.bin, one image for every
 # site), the setup tool's tests, and the setup tool packaged for Windows and Linux with zk-agent.bin
-# beside it. v* tags attach the two packages to the GitHub release.
+# beside it. An esp32-setup-<N> tag publishes the setup tool's release N (the app updates itself from
+# these; N must be its VERSION); v* tags attach the two packages to the app's release too.
 name: esp32-firmware
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "esp32-setup-*"]
     paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
   pull_request:
     paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
@@ -87,8 +88,7 @@ jobs:
           python-version: "3.13"
       - run: pip install -r requirements.txt pyinstaller==6.22.3
       - name: Build the app
-        # esptool loads its flasher stubs from data files, which PyInstaller does not find by itself.
-        run: pyinstaller --onefile --windowed --name zk-agent-setup --collect-data esptool --collect-submodules esptool zk_flasher.py
+        run: python build_app.py
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: zk-agent-bin
@@ -104,16 +104,38 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     needs: setup-tool
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: zk-agent-setup-*
           merge-multiple: true
-      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+          path: dist
+      - name: Checksums
+        # The app checks its update against this file. Not "SHA256SUMS": v* releases already have one.
+        run: cd dist && sha256sum zk-agent-setup-*.zip > zk-agent-setup-SHA256SUMS && cat zk-agent-setup-SHA256SUMS
+      - name: Tag must match the setup tool's VERSION
+        id: version
+        if: startsWith(github.ref, 'refs/tags/esp32-setup-')
+        run: |
+          version=$(sed -n 's/^VERSION = \([0-9]*\)$/\1/p' deploy/esp32/flasher/zk_flasher.py)
+          test "${GITHUB_REF_NAME}" = "esp32-setup-${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Setup tool release
+        if: startsWith(github.ref, 'refs/tags/esp32-setup-')
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          files: zk-agent-setup-*.zip
+          name: ESP32 setup tool ${{ steps.version.outputs.version }}
+          body_path: deploy/esp32/flasher/RELEASE.md
+          make_latest: "false"  # Latest stays the app's release
+          files: dist/*
+      - name: Attach to the app release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          files: dist/*

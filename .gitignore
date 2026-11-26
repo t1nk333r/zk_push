@@ -9,4 +9,5 @@ tools/zk_pull_*.json
 dist/
 deploy/pull-agent/.env
 deploy/esp32/firmware/.pio/
+deploy/esp32/flasher/build/
 deploy/esp32/firmware/include/config.h

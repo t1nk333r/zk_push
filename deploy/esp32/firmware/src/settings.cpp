@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Abdulrahman Aloqayli
+// SPDX-License-Identifier: MIT
 #include "settings.h"
 
 #include <Preferences.h>
