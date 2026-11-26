@@ -1,12 +1,9 @@
-// ESP32 pull agent (prototype): every INTERVAL_SECONDS, send the attendance device's new punches
-// to the ERPNext site. Settings are in include/config.h.
+// ESP32 pull agent (prototype): every few minutes, send the attendance device's new punches
+// to the ERPNext site. Settings come from the setup tool (see settings.h).
 #include <Arduino.h>
 #include <WiFi.h>
 
-#if !__has_include("config.h")
-#error "Copy include/config.example.h to include/config.h and fill it in"
-#endif
-#include "config.h"
+#include "settings.h"
 #include "sync.h"
 
 // Reboot if the network has been unusable for this many runs in a row (stuck Wi-Fi stack, ...).
@@ -15,20 +12,21 @@
 // not enabled) are not fixed by a reboot, so they don't count.
 static constexpr int MAX_NETWORK_FAILURES = 30;
 static int network_failures = 0;
+static bool configured = false;
 
 static bool ensure_wifi() {
 	static bool started = false;
 	if (WiFi.status() == WL_CONNECTED) return true;
 	if (!started) {
-		Serial.printf("wifi: connecting to %s\n", WIFI_SSID);
-		// The credentials come from config.h; don't let the Wi-Fi stack keep a second copy in NVS.
+		Serial.printf("wifi: connecting to %s\n", settings.wifi_ssid.c_str());
+		// The credentials are in the settings; don't let the Wi-Fi stack keep a second copy in NVS.
 		WiFi.persistent(false);
 		WiFi.mode(WIFI_STA);
 		// No modem sleep: with it, some routers deliver packets to the board late or never (the
 		// device's replies time out). The board is mains powered, so the saving does not matter.
 		WiFi.setSleep(false);
 		WiFi.setAutoReconnect(true);
-		WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+		WiFi.begin(settings.wifi_ssid.c_str(), settings.wifi_password.c_str());
 		started = true;
 	} else {
 		// After a drop the Wi-Fi stack reconnects by itself; calling begin() while it does fails
@@ -39,7 +37,7 @@ static bool ensure_wifi() {
 	if (WiFi.status() != WL_CONNECTED) {
 		Serial.println("wifi: not connected");
 		WiFi.disconnect();  // start the next attempt afresh
-		WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+		WiFi.begin(settings.wifi_ssid.c_str(), settings.wifi_password.c_str());
 		return false;
 	}
 	Serial.printf("wifi: connected, IP %s\n", WiFi.localIP().toString().c_str());
@@ -49,10 +47,20 @@ static bool ensure_wifi() {
 void setup() {
 	Serial.begin(115200);
 	delay(200);
-	Serial.printf("\nzk pull agent: device %s -> %s every %ds\n", DEVICE_HOST, SITE_URL, INTERVAL_SECONDS);
+	Serial.println("\nzk pull agent");
+	configured = load_settings();
+	if (configured) {
+		Serial.printf("zk pull agent: device %s -> %s every %us\n", settings.device_host.c_str(),
+			settings.site_url.c_str(), unsigned(settings.interval_seconds));
+	}
 }
 
 void loop() {
+	if (!configured) {  // nothing to do until the setup tool writes settings (it resets the board)
+		delay(30000);
+		Serial.println("settings: none on this board; write them with the setup tool (deploy/esp32/flasher)");
+		return;
+	}
 	bool network_ok = ensure_wifi();
 	if (network_ok) {
 		const SyncResult result = run_sync();
@@ -64,5 +72,5 @@ void loop() {
 		delay(1000);
 		ESP.restart();
 	}
-	delay(INTERVAL_SECONDS * 1000UL);
+	delay(settings.interval_seconds * 1000UL);
 }

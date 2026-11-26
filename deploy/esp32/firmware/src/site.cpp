@@ -4,23 +4,23 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 
-#include "config.h"
+#include "settings.h"
 
 static constexpr uint32_t HTTP_TIMEOUT_MS = 30000;
 static constexpr unsigned long TLS_HANDSHAKE_TIMEOUT_S = 30;  // the client default is 120 s
 
-// Runs one request with a fresh client; https uses SITE_ROOT_CA.
+// Runs one request with a fresh client; https checks the site against settings.root_ca.
 template <typename Fn>
 static int with_http(const String& url, Fn request) {
 	const bool https = url.startsWith("https://");
-	if (https && sizeof(SITE_ROOT_CA) <= 1) {
-		Serial.println("site: https needs SITE_ROOT_CA in config.h");
+	if (https && settings.root_ca.isEmpty()) {
+		Serial.println("site: https needs the site's root certificate in the settings");
 		return -1;
 	}
 	WiFiClient plain;
 	WiFiClientSecure secure;
 	if (https) {
-		secure.setCACert(SITE_ROOT_CA);  // may hold several PEM certificates, one after another
+		secure.setCACert(settings.root_ca.c_str());  // may hold several PEM certificates, one after another
 		secure.setHandshakeTimeout(TLS_HANDSHAKE_TIMEOUT_S);
 	}
 	HTTPClient http;
@@ -32,7 +32,7 @@ static int with_http(const String& url, Fn request) {
 }
 
 static String cdata_url(const char* serial, const char* query) {
-	String base(SITE_URL);
+	String base(settings.site_url);
 	while (base.endsWith("/")) base.remove(base.length() - 1);
 	return base + "/iclock/cdata?SN=" + serial + "&" + query;  // serials are letters and digits only
 }
@@ -48,7 +48,7 @@ int site_post(const char* serial, const char* table, const char* body, size_t le
 		// Only the site's "OK: <n>" means stored: a proxy, captive portal or wrong path can also answer
 		// 200, and progress saved after that would skip these punches for good.
 		if (status == 200 && !http.getString().startsWith("OK")) {
-			Serial.println("site: HTTP 200 but not the site's OK (wrong SITE_URL, proxy or captive portal?)");
+			Serial.println("site: HTTP 200 but not the site's OK (wrong site address, proxy or captive portal?)");
 			return 0;
 		}
 		return status;

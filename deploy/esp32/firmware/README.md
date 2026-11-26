@@ -1,12 +1,17 @@
 # ESP32 pull agent firmware (prototype)
 
 Every 2 minutes: read the attendance device's new records over the LAN and post them to the site's
-`/iclock/cdata`, like `tools/pull_from_device.py`. Settings are compiled in (`include/config.h`);
-there is no setup page, Ethernet or OTA yet. Design and findings: `../README.md`.
+`/iclock/cdata`, like `tools/pull_from_device.py`. The settings live in the board's `zkcfg` flash
+partition, written by the setup tool (`../flasher`), so one image (`zk-agent.bin`, built by CI)
+serves every site. There is no Ethernet or OTA yet. Design and findings: `../README.md`.
 
 Board: any ESP32-WROOM-32 DevKit (e.g. ESP32-DevKitC) with a USB data cable.
 
 ## Build and flash
+
+To set up boards, use the setup tool (`../flasher/README.md`). To develop, compile the settings in:
+`include/config.h` is used while the board's `zkcfg` partition is empty (a board the setup tool
+wrote keeps using its settings; erase it first: `pio run -e esp32dev -t erase`).
 
 ```bash
 python3 -m venv ~/.venvs/pio && ~/.venvs/pio/bin/pip install platformio   # once
@@ -33,7 +38,7 @@ sync: sent 7 punch(es)
 - The site must be reachable from the office Wi-Fi.
 - Use `https://`: over `http://` the device serial number, the only thing the site checks, travels
   in clear text.
-- Set `SITE_ROOT_CA` to the site's root certificate (PEM). To see which root the site uses:
+- With `config.h`, set `SITE_ROOT_CA` to the site's root certificate (PEM; the setup tool fetches it itself). To see which root the site uses:
   `openssl s_client -connect erp.example.com:443 -showcerts </dev/null`. Include every root it may
   move to (for Let's Encrypt: "ISRG Root X1", "ISRG Root X2", "Root YE" and "Root YR" from
   letsencrypt.org/certificates, concatenated): without OTA, a missing root means reflashing over USB.
@@ -41,6 +46,10 @@ sync: sent 7 punch(es)
   `the site answered 403 (is the ZK Device enabled?)`.
 
 ## How it works
+
+- `src/settings.*`: the settings, from the `zkcfg` partition (`partitions.csv`) or `config.h`. Keys
+  and types must match `../flasher/zk_flasher.py` (`settings_image`); bump `SETTINGS_VERSION` in both
+  when they change.
 
 - `lib/zk_protocol`: protocol maths (checksum, Comm Key, time, line format); unit-tested on a PC
   with values from `../zk_reference.py`: `pio test -e native`.
@@ -53,6 +62,6 @@ sync: sent 7 punch(es)
   and every 30 runs. `../zk_reference.py --sync` runs the same algorithm from a PC
   (`--users` prints the user list).
 - `src/site.*`: heartbeat GET, ATTLOG and OPERLOG POSTs.
-- `src/main.cpp`: Wi-Fi, the 2-minute loop, a restart after 30 runs in a row without network
+- `src/main.cpp`: settings, Wi-Fi, the 2-minute loop, a restart after 30 runs in a row without network
   (Wi-Fi down, the site unreachable, or no TCP answer from the attendance device; other failures
   don't trigger restarts).
