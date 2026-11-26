@@ -14,6 +14,9 @@ image (zk-agent.bin, built by CI) serves every site.
                                again (the site ignores punches it already has). Pointing a board at
                                another site does this by itself.
 
+The app updates itself from the GitHub releases tagged esp32-setup-<VERSION> (Check for updates; it
+also looks when it starts).
+
 Usage (Python 3.13+; tkinter ships with Python on Windows, on Linux install python3-tk / tk):
   pip install -r requirements.txt
   python zk_flasher.py [zk-agent.bin]
@@ -23,6 +26,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import queue
 import re
 import socket
@@ -34,11 +38,18 @@ import tempfile
 import threading
 import time
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
 
+# The setup tool's release: GitHub release esp32-setup-<VERSION>. Bump it, update RELEASE.md and
+# push the tag to publish one (CI checks that they match).
+VERSION = 2
+COPYRIGHT = "Copyright (c) 2026 Abdulrahman Aloqayli"
+REPO = "t1nk333r/zk_push"
+CHECKSUMS = "zk-agent-setup-SHA256SUMS"
 # Must match SETTINGS_VERSION in firmware/src/settings.cpp.
 SETTINGS_VERSION = 1
 NAMESPACE = "zkcfg"
@@ -412,6 +423,118 @@ def watch_board(port, log, stop, seconds=120):
 		ser.close()
 
 
+# --- Updates ------------------------------------------------------------------------------------
+
+
+def _get(url, timeout=30):
+	request = urllib.request.Request(url, headers={"User-Agent": f"zk-agent-setup/{VERSION}"})
+	return urllib.request.urlopen(request, timeout=timeout, context=ssl.create_default_context())
+
+
+def release_asset():
+	return "zk-agent-setup-windows.zip" if sys.platform == "win32" else "zk-agent-setup-linux.zip"
+
+
+def newest_release(releases, current=VERSION):
+	"""From GitHub's release list: (version, {asset name: download link}) of the newest setup tool
+	release after `current`, or None."""
+	best = None
+	for r in releases:
+		m = re.fullmatch(r"esp32-setup-(\d+)", r.get("tag_name") or "")
+		if not m or r.get("draft") or r.get("prerelease"):
+			continue
+		version = int(m.group(1))
+		if version > current and (best is None or version > best[0]):
+			best = (version, {a["name"]: a["browser_download_url"] for a in r.get("assets", [])})
+	return best
+
+
+def check_for_update():
+	with _get(f"https://api.github.com/repos/{REPO}/releases?per_page=30", timeout=15) as r:
+		return newest_release(json.load(r))
+
+
+def checksum_of(sums, name):
+	"""The SHA-256 for `name` in a sha256sum file, or None."""
+	for line in sums.splitlines():
+		parts = line.split()
+		if len(parts) == 2 and parts[1].lstrip("*") == name:
+			return parts[0].lower()
+	return None
+
+
+def _download(url, log, label):
+	chunks, done = [], 0
+	log(f"Downloading {label}")
+	with _get(url, timeout=60) as r:
+		total = int(r.headers.get("Content-Length") or 0)
+		while chunk := r.read(1 << 16):
+			chunks.append(chunk)
+			done += len(chunk)
+			if total:
+				log(f"Downloading {label}: {done * 100 // total}%", replace=True)
+	return b"".join(chunks)
+
+
+def apply_update(archive, exe):
+	"""Puts the files of a release zip (bytes) beside `exe`, the app among them in place of `exe`.
+	Windows cannot overwrite a running .exe but can rename it: the old app becomes <name>.old, which
+	the next start deletes."""
+	folder = exe.parent
+	with zipfile.ZipFile(io.BytesIO(archive)) as z:
+		# Top-level files only, so nothing lands outside the app's folder.
+		names = [n for n in z.namelist() if n == Path(n).name and n not in ("", ".", "..")]
+		app = next((n for n in names if n.startswith("zk-agent-setup")), None)
+		if not app:
+			raise ValueError("the update has no app in it")
+		for name in sorted(names, key=lambda n: n == app):  # the app last: a failure before leaves it working
+			target = exe if name == app else folder / name
+			new = target.with_name(target.name + ".new")
+			new.write_bytes(z.read(name))
+			if name != app:
+				os.replace(new, target)
+				continue
+			new.chmod(0o755)
+			old = exe.with_name(exe.name + ".old")
+			old.unlink(missing_ok=True)
+			exe.rename(old)
+			try:
+				os.replace(new, exe)
+			except OSError:
+				old.rename(exe)
+				raise
+
+
+def update_app(release, log):
+	"""Downloads release (from check_for_update), checks it against its published SHA-256 and
+	installs it over the running app. Returns the app's path, to start it."""
+	version, assets = release
+	name = release_asset()
+	if name not in assets or CHECKSUMS not in assets:
+		raise RuntimeError(f"release {version} has no {name} or {CHECKSUMS}")
+	expected = checksum_of(_download(assets[CHECKSUMS], log, CHECKSUMS).decode(), name)
+	archive = _download(assets[name], log, name)
+	if not expected or hashlib.sha256(archive).hexdigest() != expected:
+		raise RuntimeError(f"{name} does not match its checksum: not installed")
+	exe = Path(sys.executable).resolve()
+	apply_update(archive, exe)
+	return exe
+
+
+def start_app(exe):
+	env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")  # a new app, not a child of this one
+	if sys.platform == "win32":
+		subprocess.Popen([str(exe)], env=env, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+	else:
+		subprocess.Popen([str(exe)], env=env, start_new_session=True)
+
+
+def remove_old_app():
+	if getattr(sys, "frozen", False):
+		with contextlib.suppress(OSError):
+			Path(sys.executable + ".old").unlink(missing_ok=True)
+
+
 # --- Window -------------------------------------------------------------------------------------
 
 
@@ -427,8 +550,9 @@ def main():
 	import tkinter as tk
 	from tkinter import filedialog, messagebox, ttk
 
+	remove_old_app()
 	root = tk.Tk()
-	root.title("ZK pull agent setup")
+	root.title(f"ZK pull agent setup {VERSION}")
 	events = queue.Queue()
 	state = {"root_ca": "", "busy": False, "stop": threading.Event(), "usb_ports": set()}
 
@@ -525,6 +649,14 @@ def main():
 	bar.grid(row=row, column=3, sticky="ns")
 	text.config(yscrollcommand=bar.set)
 	frm.rowconfigure(row, weight=1)
+	row += 1
+
+	footer = ttk.Frame(frm)
+	footer.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+	footer.columnconfigure(0, weight=1)
+	ttk.Label(footer, text=f"Version {VERSION} · {COPYRIGHT} · MIT License", foreground="gray35").grid(row=0, column=0, sticky="w")
+	update_btn = ttk.Button(footer, text="Check for updates", command=lambda: background(check_updates, False))
+	update_btn.grid(row=0, column=1, sticky="e")
 
 	def set_ca(pem, names):
 		state["root_ca"] = pem
@@ -601,7 +733,7 @@ def main():
 
 	def set_busy(busy):
 		state["busy"] = busy
-		for b in (install_btn, settings_btn, watch_btn):
+		for b in (install_btn, settings_btn, watch_btn, update_btn):
 			b.state(["disabled"] if busy else ["!disabled"])
 
 	def start_install(with_firmware):
@@ -655,6 +787,39 @@ def main():
 
 		background(work)
 
+	def check_updates(quiet):
+		try:
+			release = check_for_update()
+		except Exception as e:
+			if not quiet:
+				log(f"Update check: {e}")
+			return
+		if release:
+			events.put(("update", release))
+		elif not quiet:
+			log(f"Version {VERSION} is the newest.")
+
+	def offer_update(release):
+		version = release[0]
+		if not getattr(sys, "frozen", False):
+			log(f"Version {version} of the setup tool is out: update this copy of the source (git pull).")
+			return
+		if state["busy"]:
+			log(f"Version {version} of the setup tool is out: press Check for updates when the board is done.")
+			return
+		if not messagebox.askyesno("Update", f"Version {version} of the setup tool is out (this is {VERSION}).\n\nUpdate now? The app restarts."):
+			return
+		set_busy(True)
+
+		def work():
+			try:
+				events.put(("restart", update_app(release, log)))
+			except Exception as e:
+				log(f"Update failed: {e}")
+				events.put(("idle",))
+
+		background(work)
+
 	def pump():
 		while not events.empty():
 			ev = events.get()
@@ -682,10 +847,17 @@ def main():
 				log("Wi-Fi password: filled in from this computer's saved networks.")
 			elif ev[0] == "idle":
 				set_busy(False)
+			elif ev[0] == "update":
+				offer_update(ev[1])
+			elif ev[0] == "restart":
+				start_app(ev[1])
+				root.destroy()
+				return
 		root.after(100, pump)
 
 	refresh_ports()
 	background(scan)
+	background(check_updates, True)
 	pump()
 	root.after(2000, poll_ports)
 	root.mainloop()
