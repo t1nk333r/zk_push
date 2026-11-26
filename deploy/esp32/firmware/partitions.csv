@@ -1,0 +1,10 @@
+# The Arduino default (4 MB, two app slots for a future OTA) with the unused SPIFFS replaced by
+# "zkcfg", the settings the setup tool writes. The tool reads these offsets from the image, so it
+# never overwrites "nvs" (the upload position) when it installs a new firmware.
+# Name,   Type, SubType,  Offset,   Size,
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x140000,
+app1,     app,  ota_1,    0x150000, 0x140000,
+zkcfg,    data, nvs,      0x290000, 0x8000,
+coredump, data, coredump, 0x3F0000, 0x10000,

@@ -9,7 +9,7 @@
 #include <WiFiClient.h>
 #include <string.h>
 
-#include "config.h"
+#include "settings.h"
 #include "site.h"
 #include "zk_device.h"
 
@@ -28,19 +28,26 @@ struct Progress {
 	uint32_t fp_time = 0;  // fingerprint of record next - 1
 	char fp_pin[PIN_MAX + 1] = "";
 
-	void load() {
+	// Progress belongs to one site: after the board is pointed at another, everything since the
+	// settings' date is sent again (the site ignores punches it already has). Returns false then.
+	bool load() {
 		Preferences p;
 		p.begin("zkpull", true);
-		next = p.getUInt("next", 0);
-		fp_time = p.getUInt("fp_time", 0);
-		p.getString("fp_pin", fp_pin, sizeof fp_pin);
+		const bool same_site = p.getString("site", "") == settings.site_url;
+		if (same_site) {
+			next = p.getUInt("next", 0);
+			fp_time = p.getUInt("fp_time", 0);
+			p.getString("fp_pin", fp_pin, sizeof fp_pin);
+		}
 		p.end();
+		return same_site;
 	}
 
 	bool save() const {
 		Preferences p;
 		if (!p.begin("zkpull", false)) return false;
-		const bool ok = p.putUInt("next", next) && p.putUInt("fp_time", fp_time) &&
+		const bool ok = p.putString("site", settings.site_url) == settings.site_url.length() &&
+			p.putUInt("next", next) && p.putUInt("fp_time", fp_time) &&
 			p.putString("fp_pin", fp_pin) == strlen(fp_pin);
 		p.end();
 		return ok;
@@ -122,8 +129,11 @@ static bool locate(ZkDevice& dev, Progress& saved, uint32_t records) {
 
 static bool sync_records(ZkDevice& dev, const char* serial, uint32_t records) {
 	Progress saved;
-	saved.load();
-	const uint32_t since = encode_time(SINCE_YEAR, SINCE_MONTH, SINCE_DAY, 0, 0, 0);
+	if (!saved.load()) {
+		Serial.println("sync: new site address, starting from record 0");
+		if (!saved.save()) Serial.println("sync: could not save progress to flash");
+	}
+	const uint32_t since = settings.since;
 
 	if (saved.next > 0 && !locate(dev, saved, records)) return false;
 
@@ -205,7 +215,7 @@ SyncResult run_sync() {
 	uint32_t records = 0, capacity = 0, buffer_size = 0;
 	site_unreachable = false;
 
-	bool ok = dev.connect(DEVICE_HOST, DEVICE_PORT, DEVICE_COMM_KEY) && dev.serial_number(serial, sizeof serial) &&
+	bool ok = dev.connect(settings.device_host.c_str(), settings.device_port, settings.comm_key) && dev.serial_number(serial, sizeof serial) &&
 		dev.record_count(records, capacity);
 	if (!ok) {
 		Serial.printf("sync: device: %s\n", dev.error());
@@ -220,8 +230,8 @@ SyncResult run_sync() {
 		const char* hint = "site error";
 		if (status < 0) hint = "not reachable";
 		else if (status == 403) hint = "is the ZK Device enabled?";
-		else if (status == 404) hint = "is zk_push installed at SITE_URL?";
-		else if (status >= 300 && status < 400) hint = "redirected: put the final https:// address in SITE_URL";
+		else if (status == 404) hint = "is zk_push installed at the site address?";
+		else if (status >= 300 && status < 400) hint = "redirected: set the site address to the final https:// one";
 		else if (status == 400) hint = "the site rejected the serial number";
 		Serial.printf("sync: device %s: the site answered %d (%s)\n", serial, status, hint);
 		dev.close();

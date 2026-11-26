@@ -1,9 +1,12 @@
-# ESP32 pull agent firmware: protocol unit tests and a build with the example config.
+# ESP32 pull agent: protocol unit tests and the firmware build (zk-agent.bin, one image for every
+# site), the setup tool's tests, and the setup tool packaged for Windows and Linux with zk-agent.bin
+# beside it. v* tags attach the two packages to the GitHub release.
 name: esp32-firmware
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
   pull_request:
     paths: [deploy/esp32/**, .github/workflows/esp32-firmware.yml]
@@ -27,10 +30,90 @@ jobs:
         with:
           path: ~/.platformio
           key: pio-${{ hashFiles('deploy/esp32/firmware/platformio.ini') }}
-      - run: pip install platformio==6.2.0
+      - run: pip install platformio==6.2.0 esptool==5.6.0
       - name: Unit tests (native)
         run: pio test -e native
-      - name: Build
+      - name: Build (settings from the setup tool)
+        run: pio run -e esp32dev
+      - name: Merge into zk-agent.bin
+        # Offsets and flash options as `pio run -t upload` writes them for esp32dev.
+        run: |
+          b=.pio/build/esp32dev
+          esptool --chip esp32 merge-bin -o zk-agent.bin --flash-mode dio --flash-freq 40m --flash-size 4MB \
+            0x1000 $b/bootloader.bin 0x8000 $b/partitions.bin \
+            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 $b/firmware.bin
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zk-agent-bin
+          path: deploy/esp32/firmware/zk-agent.bin
+          if-no-files-found: error
+      - name: Build with config.h (the development path)
         run: |
           cp include/config.example.h include/config.h
           pio run -e esp32dev
+
+  setup-tool-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/esp32/flasher
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python -m unittest -v test_zk_flasher
+
+  setup-tool:
+    needs: [build, setup-tool-tests]
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            package: zk-agent-setup-windows
+          - os: ubuntu-latest
+            package: zk-agent-setup-linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: deploy/esp32/flasher
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt pyinstaller==6.22.3
+      - name: Build the app
+        # esptool loads its flasher stubs from data files, which PyInstaller does not find by itself.
+        run: pyinstaller --onefile --windowed --name zk-agent-setup --collect-data esptool --collect-submodules esptool zk_flasher.py
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: zk-agent-bin
+          path: deploy/esp32/flasher/dist
+      - name: Package
+        run: |
+          cp README.md dist/
+          cd dist && python -m zipfile -c ../${{ matrix.package }}.zip zk-agent-setup* zk-agent.bin README.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.package }}
+          path: deploy/esp32/flasher/${{ matrix.package }}.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: setup-tool
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: zk-agent-setup-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          files: zk-agent-setup-*.zip

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Abdulrahman Aloqayli
 // SPDX-License-Identifier: MIT
-// Copy to config.h (git-ignored) and fill in. The prototype has no setup page yet.
+// Development only: copy to config.h (git-ignored) and fill in. Used while the board has no settings
+// from the setup tool (../flasher), which is how boards are set up for sites.
 // Everything here is compiled into the board's flash in plain text: anyone who can plug a USB cable
 // into the board can read the Wi-Fi password and the Comm Key (flash encryption is not enabled).
 // Give the board its own or a guest Wi-Fi network and mount it out of reach.

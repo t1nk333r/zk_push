@@ -54,7 +54,8 @@ Every `INTERVAL_SECONDS` (see `firmware/README.md` for the code layout):
 Use an `https://` site: over `http://` the device serial number, which is all the site checks,
 travels in clear text.
 
-Not built yet: a setup page (settings are compiled in), Ethernet, OTA updates.
+The settings (Wi-Fi, device, site, root certificates) are written by the setup tool in `flasher/`,
+which flashes the firmware too. Not built yet: Ethernet, OTA updates.
 
 ## Hardware
 
@@ -70,8 +71,8 @@ Compare: Raspberry Pi Zero 2 W kit ~150 SAR, runs the existing agent unchanged.
 
 - Firmware differences between device models (record size, UDP-only devices). Only the
   MB20-VL / ZMM510 above is verified.
-- HTTPS certificates: the root CA(s) are compiled in and there is no OTA yet, so put every root the
-  site may use in `SITE_ROOT_CA` (several PEMs can be concatenated); certificate dates are not
+- HTTPS certificates: the root CA(s) are in the board's settings and there is no OTA yet, so every
+  root the site may use must be there (the setup tool takes all four Let's Encrypt roots); certificate dates are not
   checked (no clock), only the chain and hostname.
 - Two clients at once (ESP32 plus ZKTime software, or the Python agent) can make reads fail;
   only one agent per device.
@@ -79,7 +80,7 @@ Compare: Raspberry Pi Zero 2 W kit ~150 SAR, runs the existing agent unchanged.
 
 ## Effort
 
-The prototype (one device, compiled-in settings, Wi-Fi, HTTPS) is written. Field-ready (setup page,
-Ethernet, OTA, a few days of soak testing on a board) is roughly another week.
+The prototype (one device, Wi-Fi, HTTPS, settings from the setup tool) is written. Field-ready
+(Ethernet, OTA, a few days of soak testing on a board) is roughly another week.
 
 Worth it when deploying to several offices; for one office the Pi Zero 2 W is cheaper overall.

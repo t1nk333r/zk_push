@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 node_modules/
 *.csv
+!deploy/esp32/firmware/partitions.csv
 tools/zk_pull_*.json
 dist/
 deploy/pull-agent/.env
