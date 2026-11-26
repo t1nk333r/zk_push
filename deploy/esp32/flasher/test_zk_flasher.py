@@ -147,5 +147,20 @@ SSID 3 : old-windows
 		self.assertEqual(z.parse_netsh(out), [("office", True), ("office-5g", False), ("old-windows", True)])
 
 
+class UsbProblem(unittest.TestCase):
+	def test_driver_missing(self):
+		devices = [("USB Input Device", "USB\\VID_046D&PID_C52B\\5&1", 0), ("USB2.0-Serial", "USB\\VID_1A86&PID_7523\\5&2", 28)]
+		message = z.usb_problem(devices)
+		self.assertIn("USB2.0-Serial", message)
+		self.assertIn("CH340", message)
+
+	def test_no_com_port(self):
+		self.assertIn("no COM port", z.usb_problem([("CP2102 USB to UART Bridge", "USB\\VID_10C4&PID_EA60\\0001", 0)]))
+
+	def test_no_board(self):
+		self.assertIn("another cable", z.usb_problem([("USB Input Device", "USB\\VID_046D&PID_C52B\\5&1", 0)]))
+		self.assertIn("another cable", z.usb_problem([]))
+
+
 if __name__ == "__main__":
 	unittest.main()
