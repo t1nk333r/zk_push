@@ -22,6 +22,7 @@ Usage (Python 3.13+; tkinter ships with Python on Windows, on Linux install pyth
 import contextlib
 import hashlib
 import io
+import json
 import queue
 import re
 import socket
@@ -46,6 +47,13 @@ BAUD = "460800"
 TABLE_OFFSET, TABLE_SIZE = 0x8000, 0xC00
 # USB-serial chips on ESP32 boards: Silicon Labs CP210x, WCH CH34x, FTDI, Espressif native USB.
 USB_SERIAL_VIDS = {0x10C4, 0x1A86, 0x0403, 0x303A}
+# Where Windows users get each chip's driver when Windows Update did not install it.
+USB_DRIVERS = {
+	"10C4": "the CP210x driver from https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers",
+	"1A86": "the CH340 driver from https://www.wch-ic.com/downloads/CH341SER_EXE.html",
+	"0403": "the FTDI VCP driver from https://ftdichip.com/drivers/vcp-drivers/",
+	"303A": "the latest Windows updates (Windows has the driver for this board)",
+}
 
 # Let's Encrypt chains end at one of these; the site may move between them without notice, and a
 # board without its root needs a USB visit, so a Let's Encrypt site gets all four. Pinned by SHA-256.
@@ -282,12 +290,43 @@ def saved_wifi_password(ssid):
 
 
 def serial_ports():
-	"""[(device, description)] of USB serial ports, the chips used on ESP32 boards first."""
+	"""[(device, description, is_usb)]: USB serial ports (the chips used on ESP32 boards first), then
+	the others, such as the PC's own COM1 / ttyS0, in case a driver does not report its USB IDs."""
 	from serial.tools import list_ports
 
-	usb = [p for p in list_ports.comports() if p.vid is not None]  # not the PC's own COM1 / ttyS0
-	ports = sorted(usb, key=lambda p: (p.vid not in USB_SERIAL_VIDS, p.device))
-	return [(p.device, p.description or p.device) for p in ports]
+	ports = sorted(list_ports.comports(), key=lambda p: (p.vid is None, p.vid not in USB_SERIAL_VIDS, p.device))
+	return [(p.device, p.description or p.device, p.vid is not None) for p in ports]
+
+
+def windows_usb_devices():
+	"""[(name, device_id, error_code)] of the USB devices plugged into this Windows PC."""
+	out = _run(
+		[
+			"powershell", "-NoProfile", "-NonInteractive", "-Command",
+			"Get-CimInstance Win32_PnPEntity | Where-Object { $_.DeviceID -like 'USB\\VID_*' } | "
+			"Select-Object Name,DeviceID,ConfigManagerErrorCode | ConvertTo-Json -Compress",
+		],
+		timeout=60,
+	)
+	try:
+		rows = json.loads(out or "[]")
+	except ValueError:
+		return []
+	rows = [rows] if isinstance(rows, dict) else rows
+	return [(r.get("Name") or "USB device", r.get("DeviceID") or "", r.get("ConfigManagerErrorCode") or 0) for r in rows]
+
+
+def usb_problem(devices):
+	"""Why no serial port showed up for the board, from windows_usb_devices()."""
+	boards = [d for d in devices if re.search(r"VID_(10C4|1A86|0403|303A)", d[1], re.I)]
+	missing = [d for d in boards if d[2]]
+	if missing:
+		name, device_id, code = missing[0]
+		vid = re.search(r"VID_([0-9A-F]{4})", device_id, re.I).group(1).upper()
+		return f"The board is plugged in ({name}) but Windows has no driver for it (error {code}). Install {USB_DRIVERS[vid]}, then unplug and replug the board."
+	if boards:
+		return f"Windows sees the board ({boards[0][0]}) but gives it no COM port: unplug and replug it, or reinstall its driver."
+	return "Windows sees no ESP32 board on USB: try another cable (many are charge-only) or another USB socket."
 
 
 class _LogWriter(io.TextIOBase):
@@ -391,7 +430,7 @@ def main():
 	root = tk.Tk()
 	root.title("ZK pull agent setup")
 	events = queue.Queue()
-	state = {"root_ca": "", "busy": False, "stop": threading.Event()}
+	state = {"root_ca": "", "busy": False, "stop": threading.Event(), "usb_ports": set()}
 
 	def log(text, replace=False):
 		events.put(("log", text, replace))
@@ -491,13 +530,25 @@ def main():
 		state["root_ca"] = pem
 		ca_var.set(f"{len(names)}: " + ", ".join(names) if names else "none yet")
 
-	def refresh_ports():
+	def refresh_ports(quiet=False):
 		ports = serial_ports()
-		port_box["values"] = [p for p, _ in ports]
-		if ports and port_var.get() not in port_box["values"]:
-			port_var.set(ports[0][0])
-		if not ports:
+		usb = [(p, d) for p, d, is_usb in ports if is_usb]
+		new = [(p, d) for p, d in usb if p not in state["usb_ports"]]
+		state["usb_ports"] = {p for p, _ in usb}
+		port_box["values"] = [p for p, _, _ in ports]
+		if new and not state["busy"]:
+			port_var.set(new[0][0])
+			log(f"Board found: {new[0][0]} ({new[0][1]})")
+		elif port_var.get() and port_var.get() not in port_box["values"]:
+			port_var.set("")
+		if not usb and not quiet:
 			log("No USB serial port found: plug the board in with a data cable (many are charge-only).")
+			if sys.platform == "win32":
+				background(lambda: log(usb_problem(windows_usb_devices())))
+
+	def poll_ports():  # a board plugged in after the window opened shows up by itself
+		refresh_ports(quiet=True)
+		root.after(2000, poll_ports)
 
 	def background(fn, *args):
 		threading.Thread(target=fn, args=args, daemon=True).start()
@@ -636,6 +687,7 @@ def main():
 	refresh_ports()
 	background(scan)
 	pump()
+	root.after(2000, poll_ports)
 	root.mainloop()
 
 
