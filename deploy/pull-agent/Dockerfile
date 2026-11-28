@@ -8,7 +8,7 @@
 # Runs tools/pull_from_device.py; the state file lives in the /data volume.
 # Pinned by digest so the GHCR image and the release tarballs start from the same base; Dependabot
 # (.github/dependabot.yml) proposes updates.
-FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+FROM python:3.15-slim-bookworm@sha256:96599df822d0e1c6bb700014a05c7f3c8cabc6e0f7ff3c4f9f69cee033b4b5d9
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="zk-pull-agent" \
